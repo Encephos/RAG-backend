@@ -1,86 +1,102 @@
 import pytest
+from unittest.mock import MagicMock, patch, AsyncMock
 from src.services.kg_service import KnowledgeGraphService
 
 class TestKnowledgeGraphService:
     
-    def test_add_entity(self):
-        """Test adding an entity to the graph."""
-        kg = KnowledgeGraphService()
-        kg.add_entity("Apple")
+    @patch("src.services.kg_service.QdrantService")
+    @patch("src.services.kg_service.EmbeddingService")
+    async def test_add_entity_with_resolution_new(self, mock_emb, mock_qdrant):
+        """Test adding a new entity."""
+        service = KnowledgeGraphService()
         
-        assert "Apple" in kg.graph
-        assert kg.graph["Apple"] == {}
+        # Mock Embedding
+        mock_emb_instance = mock_emb.return_value
+        mock_emb_instance.embed_query = AsyncMock(return_value=[0.1] * 384)
+        service.embedder = mock_emb_instance
+        
+        # Mock Qdrant Search (No match)
+        mock_qdrant_instance = mock_qdrant.return_value
+        mock_qdrant_instance.search_entities.return_value = []
+        service.qdrant = mock_qdrant_instance
+        
+        entity_id = await service.add_entity_with_resolution("Apple", "Org", "Tech Co")
+        
+        assert entity_id is not None
+        service.qdrant.upsert_entity.assert_called_once()
 
-    def test_add_relation(self):
-        """Test adding a relation between entities."""
-        kg = KnowledgeGraphService()
-        kg.add_relation("Apple", "Cupertino", "headquartered_in", 0.95)
+    @patch("src.services.kg_service.QdrantService")
+    @patch("src.services.kg_service.EmbeddingService")
+    async def test_add_entity_with_resolution_existing(self, mock_emb, mock_qdrant):
+        """Test resolving to an existing entity."""
+        service = KnowledgeGraphService()
         
-        assert "Apple" in kg.graph
-        assert "Cupertino" in kg.graph["Apple"]
-        assert kg.graph["Apple"]["Cupertino"]["relation"] == "headquartered_in"
-        assert kg.graph["Apple"]["Cupertino"]["confidence"] == 0.95
+        # Mock Embedding
+        mock_emb_instance = mock_emb.return_value
+        mock_emb_instance.embed_query = AsyncMock(return_value=[0.1] * 384)
+        service.embedder = mock_emb_instance
+        
+        # Mock Qdrant Search (Match found)
+        mock_hit = MagicMock()
+        mock_hit.id = "existing_id"
+        mock_hit.metadata = {"id": "existing_id"}
+        mock_qdrant_instance = mock_qdrant.return_value
+        mock_qdrant_instance.search_entities.return_value = [mock_hit]
+        service.qdrant = mock_qdrant_instance
+        
+        entity_id = await service.add_entity_with_resolution("Apple Inc", "Org", "Tech Co")
+        
+        assert entity_id == "existing_id"
+        service.qdrant.upsert_entity.assert_not_called()
 
-    def test_add_triple(self):
-        """Test adding a semantic triple."""
-        kg = KnowledgeGraphService()
-        kg.add_triple("Steve Jobs", "founded", "Apple", 0.99)
+    @patch("src.services.kg_service.QdrantService")
+    def test_add_relation(self, mock_qdrant):
+        """Test adding a relation."""
+        service = KnowledgeGraphService()
+        mock_qdrant_instance = mock_qdrant.return_value
+        service.qdrant = mock_qdrant_instance
         
-        assert "Steve Jobs" in kg.graph
-        assert "Apple" in kg.graph["Steve Jobs"]
-        assert kg.graph["Steve Jobs"]["Apple"]["relation"] == "founded"
+        # Mock Source Entity
+        mock_qdrant_instance.get_entity.return_value = {
+            "id": "source",
+            "relations": []
+        }
+        
+        service.add_relation("source", "target", "rel_type")
+        
+        service.qdrant.update_entity_payload.assert_called_once()
+        args = service.qdrant.update_entity_payload.call_args
+        assert args[0][0] == "source"
+        assert args[0][1]["relations"][0] == {"target_id": "target", "type": "rel_type"}
 
-    def test_get_neighbors(self):
-        """Test getting neighbors of an entity."""
-        kg = KnowledgeGraphService()
-        kg.add_triple("Apple", "founded_by", "Steve Jobs", 0.95)
-        kg.add_triple("Apple", "headquartered_in", "Cupertino", 0.9)
+    @patch("src.services.kg_service.QdrantService")
+    @patch("src.services.kg_service.EmbeddingService")
+    async def test_get_graph_context(self, mock_emb, mock_qdrant):
+        """Test retrieving graph context."""
+        service = KnowledgeGraphService()
         
-        neighbors = kg.get_neighbors("Apple")
+        # Mock Embedding
+        mock_emb_instance = mock_emb.return_value
+        mock_emb_instance.embed_query = AsyncMock(return_value=[0.1] * 384)
+        service.embedder = mock_emb_instance
         
-        assert "Steve Jobs" in neighbors
-        assert "Cupertino" in neighbors
-        assert neighbors["Steve Jobs"]["relation"] == "founded_by"
-
-    def test_get_subgraph(self):
-        """Test getting a subgraph from starting entities."""
-        kg = KnowledgeGraphService()
-        kg.add_triple("Apple", "founded_by", "Steve Jobs", 0.95)
-        kg.add_triple("Steve Jobs", "born_in", "San Francisco", 0.9)
-        kg.add_triple("Apple", "headquartered_in", "Cupertino", 0.9)
+        # Mock Entry Points
+        mock_hit = MagicMock()
+        mock_hit.metadata = {
+            "id": "e1",
+            "name": "Entity1",
+            "type": "Type",
+            "description": "Desc",
+            "relations": [{"target_id": "e2", "type": "rel"}]
+        }
+        mock_qdrant_instance = mock_qdrant.return_value
+        mock_qdrant_instance.search_entities.return_value = [mock_hit]
         
-        subgraph = kg.get_subgraph(["Apple"], depth=1)
+        # Mock Target Entity
+        mock_qdrant_instance.get_entity.return_value = {"name": "Entity2"}
+        service.qdrant = mock_qdrant_instance
         
-        assert "Apple" in subgraph
-        assert "Steve Jobs" in subgraph["Apple"]
-        assert "Cupertino" in subgraph["Apple"]
-
-    def test_get_subgraph_depth_2(self):
-        """Test getting a subgraph with depth 2."""
-        kg = KnowledgeGraphService()
-        kg.add_triple("Apple", "founded_by", "Steve Jobs", 0.95)
-        kg.add_triple("Steve Jobs", "born_in", "San Francisco", 0.9)
+        context = await service.get_graph_context("query")
         
-        subgraph = kg.get_subgraph(["Apple"], depth=2)
-        
-        assert "Apple" in subgraph
-        assert "Steve Jobs" in subgraph
-
-    def test_get_graph_context_string(self):
-        """Test getting a human-readable graph context string."""
-        kg = KnowledgeGraphService()
-        kg.add_triple("Apple", "founded_by", "Steve Jobs", 0.95)
-        
-        context = kg.get_graph_context_string(["Apple"], depth=1)
-        
-        assert "Apple" in context
-        assert "founded_by" in context
-        assert "Steve Jobs" in context
-
-    def test_clear(self):
-        """Test clearing the graph."""
-        kg = KnowledgeGraphService()
-        kg.add_triple("Apple", "founded_by", "Steve Jobs", 0.95)
-        kg.clear()
-        
-        assert kg.graph == {}
+        assert "Entity: Entity1" in context
+        assert "- rel -> Entity2" in context

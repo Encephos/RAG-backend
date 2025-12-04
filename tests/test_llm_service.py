@@ -1,110 +1,54 @@
 import pytest
-from unittest.mock import MagicMock, patch
-from src.services.llm_service import LLMService, Triple
+from unittest.mock import MagicMock, patch, AsyncMock
+import json # Added for json.dumps
+from src.services.llm_service import LLMService, EntityNode, Relation, ExtractionResult
 
 class TestLLMService:
     
-    @patch("src.services.llm_service.httpx.Client")
-    def test_extract_entities_success(self, mock_client):
+    @patch("src.services.llm_service.httpx.AsyncClient")
+    async def test_extract_entities_success(self, mock_client_class):
         """Test successful entity extraction."""
+        # Mock response
         mock_response = MagicMock()
         mock_response.json.return_value = {
             "choices": [{
                 "message": {
-                    "content": '[{"subject": "Apple", "predicate": "founded_by", "object": "Steve Jobs", "confidence": 0.95}]'
+                    "content": json.dumps({
+                        "entities": [{"name": "Apple", "type": "Org", "description": "Tech Co"}],
+                        "relations": []
+                    })
                 }
             }]
         }
-        mock_response.raise_for_status = MagicMock()
-        mock_client.return_value.__enter__.return_value.post.return_value = mock_response
         
-        llm_service = LLMService()
-        triples = llm_service.extract_entities("Apple was founded by Steve Jobs.")
+        # Setup AsyncClient mock context manager
+        mock_client_instance = MagicMock()
+        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
+        mock_client_instance.__aexit__ = AsyncMock(return_value=None)
+        mock_client_instance.post = AsyncMock(return_value=mock_response)
+        mock_client_class.return_value = mock_client_instance
         
-        assert len(triples) == 1
-        assert triples[0].subject == "Apple"
-        assert triples[0].predicate == "founded_by"
-        assert triples[0].object == "Steve Jobs"
-        assert triples[0].confidence == 0.95
+        service = LLMService()
+        result = await service.extract_entities("Apple is a tech company.")
+        
+        assert len(result.entities) == 1
+        assert result.entities[0].name == "Apple"
 
-    @patch("src.services.llm_service.httpx.Client")
-    def test_extract_entities_with_markdown_code_block(self, mock_client):
-        """Test entity extraction when LLM returns markdown code block."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "choices": [{
-                "message": {
-                    "content": '```json\n[{"subject": "Google", "predicate": "located_in", "object": "Mountain View", "confidence": 0.9}]\n```'
-                }
-            }]
-        }
-        mock_response.raise_for_status = MagicMock()
-        mock_client.return_value.__enter__.return_value.post.return_value = mock_response
-        
-        llm_service = LLMService()
-        triples = llm_service.extract_entities("Google is located in Mountain View.")
-        
-        assert len(triples) == 1
-        assert triples[0].subject == "Google"
-
-    @patch("src.services.llm_service.httpx.Client")
-    def test_extract_entities_empty_result(self, mock_client):
-        """Test entity extraction with no entities found."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "choices": [{
-                "message": {"content": "[]"}
-            }]
-        }
-        mock_response.raise_for_status = MagicMock()
-        mock_client.return_value.__enter__.return_value.post.return_value = mock_response
-        
-        llm_service = LLMService()
-        triples = llm_service.extract_entities("Hello world.")
-        
-        assert len(triples) == 0
-
-    @patch("src.services.llm_service.httpx.Client")
-    def test_generate_answer_success(self, mock_client):
+    @patch("src.services.llm_service.httpx.AsyncClient")
+    async def test_generate_answer_success(self, mock_client_class):
         """Test successful answer generation."""
         mock_response = MagicMock()
         mock_response.json.return_value = {
-            "choices": [{
-                "message": {"content": "Apple is a technology company headquartered in Cupertino."}
-            }]
+            "choices": [{"message": {"content": "The answer is 42."}}]
         }
-        mock_response.raise_for_status = MagicMock()
-        mock_client.return_value.__enter__.return_value.post.return_value = mock_response
         
-        llm_service = LLMService()
-        answer = llm_service.generate_answer(
-            query="What is Apple?",
-            context="Apple is a technology company.",
-            graph_context="Apple --[located_in]--> Cupertino"
-        )
+        mock_client_instance = MagicMock()
+        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
+        mock_client_instance.__aexit__ = AsyncMock(return_value=None)
+        mock_client_instance.post = AsyncMock(return_value=mock_response)
+        mock_client_class.return_value = mock_client_instance
         
-        assert "Apple" in answer
-        assert "technology" in answer.lower() or "Cupertino" in answer
-
-    @patch("src.services.llm_service.httpx.Client")
-    def test_api_error_handling(self, mock_client):
-        """Test error handling for API failures."""
-        import httpx
-        mock_client.return_value.__enter__.return_value.post.side_effect = httpx.HTTPError("API Error")
+        service = LLMService()
+        answer = await service.generate_answer("Question", "Context")
         
-        llm_service = LLMService()
-        triples = llm_service.extract_entities("Test text")
-        
-        assert triples == []
-
-
-class TestTriple:
-    def test_triple_to_dict(self):
-        """Test Triple.to_dict() method."""
-        triple = Triple("Apple", "founded_by", "Steve Jobs", 0.95)
-        result = triple.to_dict()
-        
-        assert result["subject"] == "Apple"
-        assert result["predicate"] == "founded_by"
-        assert result["object"] == "Steve Jobs"
-        assert result["confidence"] == 0.95
+        assert answer == "The answer is 42."

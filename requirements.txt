@@ -7,3 +7,5 @@ python-multipart>=0.0.9
 pytest>=8.0.0
 httpx>=0.26.0
 docling>=2.0.0
+trafilatura>=1.6.0
+beautifulsoup4>=4.12.0

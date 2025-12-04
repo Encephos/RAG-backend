@@ -1,29 +1,43 @@
 from fastapi.testclient import TestClient
+from unittest.mock import MagicMock, patch, AsyncMock
 from src.main import app
-from unittest.mock import MagicMock, patch
+from src.models.schemas import IngestResponse, QueryResponse
+from src.core.config import settings
 
 client = TestClient(app)
+client.headers["X-API-Key"] = settings.BACKEND_API_KEY
 
 
 @patch("src.services.rag_service.QdrantService")
+@patch("src.services.kg_service.QdrantService") # Patch QdrantService in KG Service too
 @patch("src.services.rag_service.EmbeddingService")
 @patch("src.services.rag_service.LLMService")
-def test_ingest_document(mock_llm, mock_embedding, mock_qdrant):
+def test_ingest_document(mock_llm, mock_embedding, mock_kg_qdrant, mock_rag_qdrant):
     """Test ingesting a document with LLM entity extraction."""
     # Setup mocks
     mock_embedding_instance = mock_embedding.return_value
-    mock_embedding_instance.embed_query.return_value = [0.1] * 384
+    mock_embedding_instance.embed_query = AsyncMock(return_value=[0.1] * 384)
     
-    mock_qdrant_instance = mock_qdrant.return_value
+    # Configure both Qdrant mocks
+    mock_rag_qdrant_instance = mock_rag_qdrant.return_value
+    mock_kg_qdrant_instance = mock_kg_qdrant.return_value
     
     # Mock LLM entity extraction
     mock_llm_instance = mock_llm.return_value
-    mock_triple = MagicMock()
-    mock_triple.subject = "Apple"
-    mock_triple.predicate = "founded_by"
-    mock_triple.object = "Steve Jobs"
-    mock_triple.confidence = 0.95
-    mock_llm_instance.extract_entities.return_value = [mock_triple]
+    
+    # Create mock ExtractionResult
+    mock_extraction = MagicMock()
+    mock_entity = MagicMock()
+    mock_entity.name = "Apple"
+    mock_entity.type = "Org"
+    mock_entity.description = "Tech co"
+    mock_extraction.entities = [mock_entity]
+    mock_extraction.relations = []
+    
+    mock_llm_instance.extract_entities = AsyncMock(return_value=mock_extraction)
+    
+    # Mock KG entity search (resolution)
+    mock_kg_qdrant_instance.search_entities.return_value = []
     
     response = client.post(
         "/api/v1/ingest",
@@ -35,27 +49,32 @@ def test_ingest_document(mock_llm, mock_embedding, mock_qdrant):
     
     # Verify interactions
     mock_embedding_instance.embed_query.assert_called()
-    mock_qdrant_instance.upsert.assert_called()
+    mock_rag_qdrant_instance.upsert.assert_called()
     mock_llm_instance.extract_entities.assert_called()
+    mock_kg_qdrant_instance.upsert_entity.assert_called()
 
 
 @patch("src.services.rag_service.QdrantService")
+@patch("src.services.rag_service.KnowledgeGraphService")
 @patch("src.services.rag_service.EmbeddingService")
 @patch("src.services.rag_service.LLMService")
-def test_query_rag_with_llm_answer(mock_llm, mock_embedding, mock_qdrant):
+def test_query_rag_with_llm_answer(mock_llm, mock_embedding, mock_kg, mock_qdrant):
     """Test querying RAG with LLM-generated answer."""
     # Setup mocks
     mock_embedding_instance = mock_embedding.return_value
-    mock_embedding_instance.embed_query.return_value = [0.1] * 384
+    mock_embedding_instance.embed_query = AsyncMock(return_value=[0.1] * 384)
     
-    mock_qdrant_instance = mock_qdrant.return_value
-    mock_qdrant_instance.search.return_value = [
+    mock_rag_qdrant_instance = mock_qdrant.return_value
+    mock_rag_qdrant_instance.search.return_value = [
         {"text": "Apple is a technology company.", "score": 0.9, "metadata": {}}
     ]
     
+    mock_kg_instance = mock_kg.return_value
+    mock_kg_instance.get_graph_context = AsyncMock(return_value="Graph info")
+    
     # Mock LLM answer generation
     mock_llm_instance = mock_llm.return_value
-    mock_llm_instance.generate_answer.return_value = "Apple is a technology company headquartered in Cupertino."
+    mock_llm_instance.generate_answer = AsyncMock(return_value="Apple is a technology company headquartered in Cupertino.")
     
     response = client.post(
         "/api/v1/query",
@@ -68,32 +87,26 @@ def test_query_rag_with_llm_answer(mock_llm, mock_embedding, mock_qdrant):
     assert "Apple" in data["answer"]
     assert "context" in data
     assert len(data["context"]) == 1
+    assert data["graph_context"]["summary"] == "Graph info"
 
-
-@patch("src.services.rag_service.QdrantService")
-@patch("src.services.rag_service.EmbeddingService")
-@patch("src.services.rag_service.LLMService")
-def test_query_with_graph_context(mock_llm, mock_embedding, mock_qdrant):
-    """Test query includes graph context in response."""
-    mock_embedding_instance = mock_embedding.return_value
-    mock_embedding_instance.embed_query.return_value = [0.1] * 384
+@patch("src.api.routes.RagService")
+def test_query_with_graph_context(mock_rag_service):
+    """Test query response includes graph context."""
+    mock_instance = mock_rag_service.return_value
+    mock_instance.query = AsyncMock(return_value={
+        "answer": "Answer",
+        "context": [],
+        "graph_context": {"summary": "Entity: Apple - Tech Co"}
+    })
     
-    mock_qdrant_instance = mock_qdrant.return_value
-    mock_qdrant_instance.search.return_value = [
-        {"text": "Apple was founded by Steve Jobs.", "score": 0.85, "metadata": {}}
-    ]
-    
-    mock_llm_instance = mock_llm.return_value
-    mock_llm_instance.generate_answer.return_value = "Steve Jobs founded Apple."
-    
-    response = client.post(
-        "/api/v1/query",
-        json={"query": "Who founded Apple?", "limit": 5}
-    )
-    
+    with patch("src.api.routes.get_rag_service", return_value=mock_instance):
+        response = client.post(
+            "/api/v1/query",
+            json={"query": "Apple"}
+        )
+        
     assert response.status_code == 200
-    data = response.json()
-    assert "graph_context" in data
+    assert "Apple" in response.json()["graph_context"]["summary"]
 
 
 def test_health_check():
@@ -130,33 +143,84 @@ def test_ingest_file_invalid_type(mock_rag, mock_doc):
     assert "Unsupported file type" in response.json()["detail"]
 
 
-@patch("src.services.rag_service.QdrantService")
-@patch("src.services.rag_service.EmbeddingService")
-@patch("src.services.rag_service.LLMService")
-@patch("src.services.document_service.DocumentService.parse_document")
-def test_ingest_file_pdf_success(mock_parse, mock_llm, mock_embedding, mock_qdrant):
-    """Test successful PDF file upload."""
-    # Mock document parsing
-    mock_parse.return_value = (
-        "This is the document content.",
-        {"filename": "test.pdf", "file_type": ".pdf", "num_pages": 1}
-    )
+@patch("src.api.routes.RagService")
+@patch("src.api.routes.DocumentService")
+def test_ingest_file_pdf_success(mock_doc_service, mock_rag_service):
+    """Test successful PDF file ingestion."""
+    # Mock RagService
+    mock_rag_instance = mock_rag_service.return_value
+    mock_rag_instance.ingest = AsyncMock(return_value=None)
     
-    # Mock embedding
-    mock_embedding_instance = mock_embedding.return_value
-    mock_embedding_instance.embed_query.return_value = [0.1] * 384
+    # Mock DocumentService
+    mock_doc_instance = mock_doc_service.return_value
+    mock_doc_instance.get_supported_formats.return_value = [".pdf"]
     
-    # Mock LLM
-    mock_llm_instance = mock_llm.return_value
-    mock_llm_instance.extract_entities.return_value = []
+    # Mock process_uploaded_file to return chunks
+    mock_chunk = MagicMock()
+    mock_chunk.text = "Chunk text"
+    mock_chunk.metadata = {"page": 1}
+    mock_chunk.chunk_index = 0
+    mock_chunk.start_char = 0
+    mock_chunk.end_char = 10
     
-    response = client.post(
-        "/api/v1/ingest/file",
-        files={"file": ("test.pdf", b"fake pdf content", "application/pdf")}
-    )
+    mock_meta = MagicMock()
+    mock_meta.filename = "test.pdf"
+    mock_meta.file_type = "pdf"
+    mock_meta.num_pages = 1
+    mock_meta.num_chunks = 1
+    mock_meta.total_characters = 100
     
+    mock_doc_instance.process_uploaded_file = AsyncMock(return_value=([mock_chunk], mock_meta))
+    
+    with patch("src.api.routes.get_rag_service", return_value=mock_rag_instance), \
+         patch("src.api.routes.get_document_service", return_value=mock_doc_instance):
+        
+        response = client.post(
+            "/api/v1/ingest/file",
+            files={"file": ("test.pdf", b"fake pdf content", "application/pdf")}
+        )
+        
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "success"
-    assert data["filename"] == "test.pdf"
-    assert data["num_chunks"] >= 1
+    assert data["num_chunks"] == 1
+    mock_rag_instance.ingest.assert_called_once()
+
+@patch("src.api.routes.RagService")
+@patch("src.api.routes.ScraperService")
+@patch("src.api.routes.DocumentService")
+def test_ingest_url_success(mock_doc_service, mock_scraper_service, mock_rag_service):
+    """Test successful URL ingestion."""
+    # Mock RagService
+    mock_rag_instance = mock_rag_service.return_value
+    mock_rag_instance.ingest = AsyncMock(return_value=None)
+    
+    # Mock ScraperService
+    mock_scraper_instance = mock_scraper_service.return_value
+    mock_scraper_instance.crawl_domain = AsyncMock(return_value=[{
+        "url": "http://example.com",
+        "text": "Web content",
+        "metadata": {"source": "http://example.com"}
+    }])
+    
+    # Mock DocumentService
+    mock_doc_instance = mock_doc_service.return_value
+    mock_chunk = MagicMock()
+    mock_chunk.text = "Web content"
+    mock_chunk.metadata = {}
+    mock_doc_instance.chunk_text.return_value = [mock_chunk]
+    
+    with patch("src.api.routes.get_rag_service", return_value=mock_rag_instance), \
+         patch("src.api.routes.get_scraper_service", return_value=mock_scraper_instance), \
+         patch("src.api.routes.get_document_service", return_value=mock_doc_instance):
+        
+        response = client.post(
+            "/api/v1/ingest/url",
+            json={"url": "http://example.com", "recursive": False}
+        )
+        
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "success"
+    mock_rag_instance.ingest.assert_called_once()
+    assert data["pages_processed"] == 1

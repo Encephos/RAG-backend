@@ -1,118 +1,120 @@
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
-from src.models.schemas import (
-    IngestRequest, IngestResponse, QueryRequest, QueryResponse,
-    FileIngestResponse, ChunkInfoResponse
-)
+from fastapi import APIRouter, HTTPException, UploadFile, File, Depends, Request
+from typing import List, Optional
+from pathlib import Path
 from src.services.rag_service import RagService
 from src.services.document_service import DocumentService
-import traceback
+from src.services.scraper_service import ScraperService
+from src.models.schemas import (
+    IngestRequest, IngestResponse, 
+    QueryRequest, QueryResponse,
+    UrlIngestRequest
+)
+from src.core.limiter import limiter
 
 router = APIRouter()
 
-# Dependency to get RagService instance
 def get_rag_service():
     return RagService()
 
 def get_document_service():
     return DocumentService()
 
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+def get_scraper_service():
+    return ScraperService()
 
 @router.post("/ingest", response_model=IngestResponse)
+@limiter.limit("50/minute")
 async def ingest_document(
-    request: IngestRequest,
+    request: Request,
+    ingest_request: IngestRequest,
     rag_service: RagService = Depends(get_rag_service)
 ):
     try:
-        rag_service.ingest(request.text, request.metadata)
+        await rag_service.ingest(ingest_request.text, ingest_request.metadata)
         return IngestResponse(
             status="success",
             message="Document ingested successfully"
         )
     except Exception as e:
-        print(f"Ingest error: {e}")
-        traceback.print_exc()
+        # Log error here
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/ingest/file", response_model=FileIngestResponse)
+@router.post("/ingest/file", response_model=IngestResponse)
+@limiter.limit("20/minute")
 async def ingest_file(
+    request: Request,
     file: UploadFile = File(...),
     rag_service: RagService = Depends(get_rag_service),
-    doc_service: DocumentService = Depends(get_document_service)
+    document_service: DocumentService = Depends(get_document_service)
 ):
-    """
-    Upload and ingest a document file (PDF, DOCX, PPTX, HTML).
-    The document will be parsed, chunked, and each chunk ingested into the RAG system.
-    """
     try:
-        # Validate file type
         filename = file.filename or "unknown"
-        suffix = filename.lower().split('.')[-1] if '.' in filename else ''
-        supported = [fmt.lstrip('.') for fmt in doc_service.get_supported_formats()]
+        suffix = Path(filename).suffix.lower()
+        supported = document_service.get_supported_formats()
         
         if suffix not in supported:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unsupported file type: .{suffix}. Supported: {supported}"
-            )
-        
-        # Read file content
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: {suffix}")
+            
         content = await file.read()
+        chunks, metadata = await document_service.process_uploaded_file(content, filename)
         
-        # Check file size
-        if len(content) > MAX_FILE_SIZE:
-            raise HTTPException(
-                status_code=400,
-                detail=f"File too large. Maximum size: {MAX_FILE_SIZE // (1024*1024)}MB"
-            )
-        
-        # Process document
-        chunks, metadata = await doc_service.process_uploaded_file(content, filename)
-        
-        # Ingest each chunk
         for chunk in chunks:
-            rag_service.ingest(chunk.text, chunk.metadata)
-        
-        # Build response
-        chunk_responses = [
-            ChunkInfoResponse(
-                text=chunk.text[:200] + "..." if len(chunk.text) > 200 else chunk.text,
-                chunk_index=chunk.chunk_index,
-                start_char=chunk.start_char,
-                end_char=chunk.end_char
-            )
-            for chunk in chunks
-        ]
-        
-        return FileIngestResponse(
+            await rag_service.ingest(chunk.text, chunk.metadata)
+            
+        return IngestResponse(
             status="success",
-            message=f"Document ingested successfully with {len(chunks)} chunks",
-            filename=metadata.filename,
-            file_type=metadata.file_type,
-            num_pages=metadata.num_pages,
-            num_chunks=metadata.num_chunks,
-            total_characters=metadata.total_characters,
-            chunks=chunk_responses
+            message=f"File {filename} ingested successfully",
+            filename=filename,
+            num_chunks=len(chunks)
         )
-        
     except HTTPException:
         raise
     except Exception as e:
         print(f"File ingest error: {e}")
-        traceback.print_exc()
+        # traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/ingest/url", response_model=IngestResponse)
+@limiter.limit("10/minute")
+async def ingest_url(
+    request: Request,
+    url_request: UrlIngestRequest,
+    rag_service: RagService = Depends(get_rag_service),
+    scraper_service: ScraperService = Depends(get_scraper_service),
+    document_service: DocumentService = Depends(get_document_service)
+):
+    try:
+        max_pages = 5 if url_request.recursive else 1
+        scraped_data = await scraper_service.crawl_domain(url_request.url, max_pages=max_pages)
+        
+        for page in scraped_data:
+            chunk = document_service.chunk_text(page["text"], page)
+            for c in chunk:
+                 await rag_service.ingest(c.text, c.metadata)
+                 
+        return IngestResponse(
+            status="success",
+            message=f"URL {url_request.url} ingested successfully",
+            pages_processed=len(scraped_data)
+        )
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/query", response_model=QueryResponse)
+@limiter.limit("100/minute")
 async def query_rag(
-    request: QueryRequest,
+    request: Request,
+    query_request: QueryRequest,
     rag_service: RagService = Depends(get_rag_service)
 ):
     try:
-        result = rag_service.query(request.query, request.limit)
-        return QueryResponse(**result)
+        result = await rag_service.query(query_request.query, query_request.limit)
+        return QueryResponse(
+            answer=result["answer"],
+            context=result["context"],
+            graph_context=result["graph_context"]
+        )
     except Exception as e:
-        print(f"Query error: {e}")
-        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/health")

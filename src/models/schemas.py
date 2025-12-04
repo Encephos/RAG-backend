@@ -8,6 +8,9 @@ class IngestRequest(BaseModel):
 class IngestResponse(BaseModel):
     status: str
     message: str
+    filename: Optional[str] = None
+    num_chunks: Optional[int] = None
+    pages_processed: Optional[int] = None
 
 class QueryRequest(BaseModel):
     query: str
@@ -23,7 +26,7 @@ class QueryResponse(BaseModel):
     context: List[SearchResult]
     graph_context: Dict[str, Any]
 
-# New schemas for file upload
+# File upload schemas
 class ChunkInfoResponse(BaseModel):
     text: str
     chunk_index: int
@@ -39,3 +42,31 @@ class FileIngestResponse(BaseModel):
     num_chunks: int
     total_characters: int
     chunks: List[ChunkInfoResponse]
+
+# Web Scraping schemas
+class UrlIngestRequest(BaseModel):
+    url: str
+    recursive: bool = False
+    max_pages: int = 10
+    max_depth: int = 2
+
+class UrlIngestResponse(BaseModel):
+    status: str
+    message: str
+    pages_processed: int
+    total_chunks: int
+
+# Knowledge Graph Schemas
+class EntityNode(BaseModel):
+    name: str
+    type: str
+    description: str
+
+class Relation(BaseModel):
+    source: str
+    target: str
+    type: str
+
+class ExtractionResult(BaseModel):
+    entities: List[EntityNode]
+    relations: List[Relation]
