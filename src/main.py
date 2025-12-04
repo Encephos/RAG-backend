@@ -1,0 +1,15 @@
+from fastapi import FastAPI
+from src.core.config import settings
+from src.api.routes import router as api_router
+
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    version=settings.VERSION,
+    description="Backend for RAG system with Qdrant and Knowledge Graph",
+)
+
+app.include_router(api_router, prefix=settings.API_V1_STR)
+
+@app.get("/")
+async def root():
+    return {"message": "Welcome to the RAG Backend API"}
