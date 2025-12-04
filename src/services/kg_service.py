@@ -36,7 +36,7 @@ class KnowledgeGraphService:
         
         if existing:
             logger.info(f"Resolved entity '{name}' to existing ID: {existing[0].id}")
-            return existing[0].metadata.get("id") or str(existing[0].id)
+            return existing[0].payload.get("id") or str(existing[0].id)
         else:
             # No match -> Create new entity
             new_id = str(uuid.uuid4())
@@ -110,7 +110,7 @@ class KnowledgeGraphService:
 
         # 2. Traverse Graph (1-Hop Neighborhood)
         for point in entry_points:
-            entity = point.metadata
+            entity = point.payload
             e_id = entity.get("id")
             e_name = entity.get("name")
             

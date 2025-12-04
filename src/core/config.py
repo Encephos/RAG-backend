@@ -12,13 +12,13 @@ class Settings(BaseSettings):
     QDRANT_ENTITY_COLLECTION_NAME: str = "rag_entities"
     
     # Embedding Settings
-    EMBEDDING_MODEL_NAME: str = "sentence-transformers/all-MiniLM-L6-v2"
+    EMBEDDING_MODEL_NAME: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     EMBEDDING_VECTOR_SIZE: int = 384
     
     # OpenRouter LLM Settings
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
-    LLM_MODEL: str = "meta-llama/llama-3.1-8b-instruct"
+    LLM_MODEL: str = "google/gemini-2.5-flash-lite-preview" # Updated to Gemini 2.5 Flash Lite
 
     # Security Settings
     BACKEND_API_KEY: str = "secret-api-key" # Default for dev, override in .env

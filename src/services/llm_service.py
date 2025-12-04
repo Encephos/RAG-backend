@@ -5,6 +5,7 @@ from src.core.config import settings
 from pydantic import BaseModel
 from src.models.schemas import EntityNode, Relation, ExtractionResult
 import logging
+from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,11 @@ class LLMService:
         self.base_url = settings.OPENROUTER_BASE_URL
         self.model = settings.LLM_MODEL
         
+    @retry(
+        wait=wait_exponential(multiplier=1, min=4, max=60),
+        stop=stop_after_attempt(10),
+        retry=retry_if_exception_type(httpx.HTTPStatusError)
+    )
     async def _call_llm(self, messages: List[Dict[str, str]], temperature: float = 0.0) -> str:
         """
         Make an asynchronous call to OpenRouter API.
@@ -32,6 +38,12 @@ class LLMService:
         Raises:
             httpx.HTTPError: If the API call fails.
         """
+        # Calculate approximate token count for logging
+        user_content = next((m["content"] for m in messages if m["role"] == "user"), "")
+        approx_input_tokens = len(user_content) // 4  # Rough estimate: 1 token ≈ 4 chars
+        
+        logger.info(f"🔵 LLM Request | Model: {self.model} | Approx Input Tokens: {approx_input_tokens}")
+        
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -46,19 +58,27 @@ class LLMService:
             "response_format": {"type": "json_object"} # Force JSON mode if supported
         }
         
-        try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    f"{self.base_url}/chat/completions",
-                    headers=headers,
-                    json=payload
-                )
-                response.raise_for_status()
-                data = response.json()
-                return data["choices"][0]["message"]["content"]
-        except httpx.HTTPError as e:
-            logger.error(f"LLM API Error: {e}")
-            raise
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{self.base_url}/chat/completions",
+                headers=headers,
+                json=payload
+            )
+            if response.is_error:
+                logger.error(f"LLM API Error Status: {response.status_code}")
+                logger.error(f"LLM API Error Body: {response.text}")
+            
+            response.raise_for_status()
+            data = response.json()
+            
+            # Log usage statistics if available
+            usage = data.get("usage", {})
+            if usage:
+                logger.info(f"✅ LLM Response | Input: {usage.get('prompt_tokens', 'N/A')} tokens | "
+                           f"Output: {usage.get('completion_tokens', 'N/A')} tokens | "
+                           f"Total: {usage.get('total_tokens', 'N/A')} tokens")
+            
+            return data["choices"][0]["message"]["content"]
 
     async def extract_entities(self, text: str) -> ExtractionResult:
         """
@@ -104,14 +124,37 @@ class LLMService:
         try:
             response = await self._call_llm(messages, temperature=0.0)
             
-            # Clean response
-            response = response.strip()
-            if response.startswith("```"):
-                response = response.split("```")[1]
-                if response.startswith("json"):
-                    response = response[4:]
+            # Robust JSON extraction
+            import re
+            # Find the first '{' and the last '}'
+            match = re.search(r'\{.*\}', response, re.DOTALL)
+            if match:
+                json_str = match.group(0)
+            else:
+                json_str = response
             
-            data = json.loads(response)
+            try:
+                data = json.loads(json_str)
+            except json.JSONDecodeError:
+                # Fallback: try to clean markdown code blocks if regex failed or wasn't enough
+                clean_response = response.strip()
+                if clean_response.startswith("```"):
+                    clean_response = clean_response.split("```")[1]
+                    if clean_response.strip().lower().startswith("json"):
+                        clean_response = clean_response.strip()[4:]
+                data = json.loads(clean_response)
+            
+            # Validate and clean relations before Pydantic validation
+            if "relations" in data:
+                valid_relations = []
+                for rel in data["relations"]:
+                    # Check if all required fields are present
+                    if isinstance(rel, dict) and "source" in rel and "target" in rel and "type" in rel:
+                        valid_relations.append(rel)
+                    else:
+                        logger.warning(f"Skipping malformed relation: {rel}")
+                data["relations"] = valid_relations
+            
             return ExtractionResult(**data)
             
         except Exception as e:
@@ -132,7 +175,8 @@ class LLMService:
         """
         system_prompt = """You are a helpful assistant that answers questions based on the provided context.
 Use ONLY the information from the context to answer. If the context doesn't contain the answer, say so.
-Be concise and accurate."""
+Be concise and accurate.
+IMPORTANT: Always answer in the same language as the user's question (e.g., if asked in German, answer in German; if English, answer in English)."""
 
         user_content = f"""Context from documents:
 {context}

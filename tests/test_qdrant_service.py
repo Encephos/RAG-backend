@@ -42,7 +42,10 @@ class TestQdrantService:
         mock_hit = MagicMock()
         mock_hit.payload = {"text": "Result", "meta": "data"}
         mock_hit.score = 0.9
-        mock_client.search.return_value = [mock_hit]
+        
+        mock_result = MagicMock()
+        mock_result.points = [mock_hit]
+        mock_client.query_points.return_value = mock_result
         
         service = QdrantService()
         results = service.search(vector=[0.1] * 384, limit=5)
@@ -75,6 +78,6 @@ class TestQdrantService:
         
         service.search_entities(vector=[0.1] * 384, limit=1)
         
-        mock_client.search.assert_called()
-        call_args = mock_client.search.call_args
+        mock_client.query_points.assert_called()
+        call_args = mock_client.query_points.call_args
         assert call_args.kwargs["collection_name"] == service.entity_collection_name

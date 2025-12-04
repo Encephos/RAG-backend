@@ -21,48 +21,66 @@ class RagService:
 
     async def ingest(self, text: str, metadata: Dict[str, Any] = None):
         """
-        Ingest text into both Vector DB and SOTA Knowledge Graph.
-        
-        Args:
-            text: The text content to ingest.
-            metadata: Optional metadata for the document.
+        Ingest a single chunk/text. 
+        Legacy method, kept for simple text ingestion.
         """
-        logger.info("Starting ingestion process...")
+        await self.ingest_document(text, [{"text": text, "metadata": metadata}])
+
+    async def ingest_document(self, full_text: str, chunks: List[Any]):
+        """
+        Ingest a full document.
+        - Upserts small chunks to Vector DB.
+        - Extracts entities from full text (or large blocks) for Knowledge Graph.
+        """
+        logger.info(f"Starting document ingestion. Size: {len(full_text)} chars, Chunks: {len(chunks)}")
         
-        # 1. Vector Store (Document Chunk)
-        vector = await self.embedding_service.embed_query(text)
-        self.qdrant_service.upsert(text, vector, metadata)
-        logger.debug("Upserted document chunk to Qdrant.")
+        # 1. Vector Store (Document Chunks)
+        # Process chunks in parallel or batch if possible, but loop is fine for now
+        for chunk in chunks:
+            # Handle both ChunkInfo objects and dicts
+            c_text = chunk.text if hasattr(chunk, 'text') else chunk["text"]
+            c_meta = chunk.metadata if hasattr(chunk, 'metadata') else chunk["metadata"]
+            
+            vector = await self.embedding_service.embed_query(c_text)
+            self.qdrant_service.upsert(c_text, vector, c_meta)
+        logger.debug(f"Upserted {len(chunks)} chunks to Qdrant.")
 
         # 2. Knowledge Graph Construction
-        # Extract entities and relations using LLM
-        extraction = await self.llm_service.extract_entities(text)
-        logger.debug(f"Extracted {len(extraction.entities)} entities and {len(extraction.relations)} relations.")
+        # Use full_text for extraction to reduce API calls and improve context
+        # User has 1M token context window, so we can send very large blocks
+        # 200k chars ~ 50k tokens, well within the 1M token limit
         
-        # Map entity names to their resolved IDs
-        entity_name_to_id = {}
+        chunk_size = 200000 # 200k chars ~ 50k tokens
+        text_blocks = [full_text[i:i+chunk_size] for i in range(0, len(full_text), chunk_size)]
         
-        # Process Entities (Resolution & Persistence)
-        for entity in extraction.entities:
-            entity_id = await self.kg_service.add_entity_with_resolution(
-                name=entity.name,
-                type=entity.type,
-                description=entity.description
-            )
-            entity_name_to_id[entity.name] = entity_id
+        for block in text_blocks:
+            extraction = await self.llm_service.extract_entities(block)
+            logger.debug(f"Extracted {len(extraction.entities)} entities from block.")
             
-        # Process Relations
-        for relation in extraction.relations:
-            source_id = entity_name_to_id.get(relation.source)
-            target_id = entity_name_to_id.get(relation.target)
+            # Map entity names to their resolved IDs
+            entity_name_to_id = {}
             
-            if source_id and target_id:
-                self.kg_service.add_relation(
-                    source_id=source_id,
-                    target_id=target_id,
-                    relation_type=relation.type
+            # Process Entities
+            for entity in extraction.entities:
+                entity_id = await self.kg_service.add_entity_with_resolution(
+                    name=entity.name,
+                    type=entity.type,
+                    description=entity.description
                 )
-        logger.info("Ingestion complete.")
+                entity_name_to_id[entity.name] = entity_id
+                
+            # Process Relations
+            for relation in extraction.relations:
+                source_id = entity_name_to_id.get(relation.source)
+                target_id = entity_name_to_id.get(relation.target)
+                
+                if source_id and target_id:
+                    self.kg_service.add_relation(
+                        source_id=source_id,
+                        target_id=target_id,
+                        relation_type=relation.type
+                    )
+        logger.info("Document ingestion complete.")
 
     async def query(self, query: str, limit: int = 5) -> Dict[str, Any]:
         """

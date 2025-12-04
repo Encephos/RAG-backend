@@ -45,10 +45,14 @@ class DocumentService:
         text = result.document.export_to_markdown()
         
         # Extract metadata
+        num_pages = getattr(result.document, 'num_pages', None)
+        if callable(num_pages):
+            num_pages = num_pages()
+            
         metadata = {
             "filename": Path(file_path).name,
             "file_type": Path(file_path).suffix.lower(),
-            "num_pages": getattr(result.document, 'num_pages', None),
+            "num_pages": num_pages,
         }
         
         return text, metadata

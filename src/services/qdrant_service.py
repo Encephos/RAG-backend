@@ -46,11 +46,14 @@ class QdrantService:
         
         metadata["text"] = text
         
+        # Generate deterministic ID based on text content to prevent duplicates
+        doc_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, text))
+        
         self.client.upsert(
             collection_name=self.collection_name,
             points=[
                 models.PointStruct(
-                    id=str(uuid.uuid4()),
+                    id=doc_id,
                     vector=vector,
                     payload=metadata
                 )
@@ -59,11 +62,11 @@ class QdrantService:
 
     def search(self, vector: List[float], limit: int = 5) -> List[Dict[str, Any]]:
         """Search for similar document chunks."""
-        results = self.client.search(
+        results = self.client.query_points(
             collection_name=self.collection_name,
-            query_vector=vector,
+            query=vector,
             limit=limit
-        )
+        ).points
         
         return [
             {
@@ -91,12 +94,12 @@ class QdrantService:
 
     def search_entities(self, vector: List[float], limit: int = 1, score_threshold: float = 0.0) -> List[Any]:
         """Search for similar entities (for resolution or retrieval)."""
-        return self.client.search(
+        return self.client.query_points(
             collection_name=self.entity_collection_name,
-            query_vector=vector,
+            query=vector,
             limit=limit,
             score_threshold=score_threshold
-        )
+        ).points
 
     def get_entity(self, entity_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve entity payload by ID."""

@@ -37,12 +37,29 @@ app.add_middleware(
 )
 
 # Global API Key Enforcement for V1 API
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+import os
+
 app.include_router(
     api_router, 
     prefix=settings.API_V1_STR, 
     dependencies=[Depends(get_api_key)]
 )
 
-@app.get("/")
-async def root():
-    return {"message": "Welcome to the RAG Backend API"}
+# Mount frontend static files
+frontend_dir = os.path.join(os.path.dirname(__file__), "frontend/out")
+if os.path.exists(frontend_dir):
+    app.mount("/_next", StaticFiles(directory=os.path.join(frontend_dir, "_next")), name="next")
+    app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
+
+    # Fallback for SPA routing (if needed, though 'export' makes it static)
+    @app.exception_handler(404)
+    async def custom_404_handler(request, exc):
+        return FileResponse(os.path.join(frontend_dir, "index.html"))
+else:
+    print(f"Warning: Frontend directory {frontend_dir} not found. Run 'npm run build' in src/frontend.")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

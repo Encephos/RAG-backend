@@ -58,8 +58,16 @@ async def ingest_file(
         content = await file.read()
         chunks, metadata = await document_service.process_uploaded_file(content, filename)
         
-        for chunk in chunks:
-            await rag_service.ingest(chunk.text, chunk.metadata)
+        # Reconstruct full text from chunks or read it? 
+        # process_uploaded_file returns chunks. 
+        # But we can just join chunks or modify process_uploaded_file to return text.
+        # Actually process_uploaded_file gets text internally.
+        # Let's assume we can reconstruct or just pass the file content decoded if text.
+        # But wait, process_uploaded_file handles PDF etc.
+        # I should update process_uploaded_file to return text too, OR just join chunk texts.
+        full_text = "\n\n".join([c.text for c in chunks])
+        
+        await rag_service.ingest_document(full_text, chunks)
             
         return IngestResponse(
             status="success",
@@ -87,10 +95,18 @@ async def ingest_url(
         max_pages = 5 if url_request.recursive else 1
         scraped_data = await scraper_service.crawl_domain(url_request.url, max_pages=max_pages)
         
+        # Combine all pages into one batch to reduce LLM API calls
+        all_chunks = []
+        combined_text = []
+        
         for page in scraped_data:
-            chunk = document_service.chunk_text(page["text"], page)
-            for c in chunk:
-                 await rag_service.ingest(c.text, c.metadata)
+            chunks = document_service.chunk_text(page["text"], page)
+            all_chunks.extend(chunks)
+            combined_text.append(page["text"])
+        
+        # Process all pages together in one call
+        full_text = "\n\n---PAGE BREAK---\n\n".join(combined_text)
+        await rag_service.ingest_document(full_text, all_chunks)
                  
         return IngestResponse(
             status="success",

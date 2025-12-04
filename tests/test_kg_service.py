@@ -39,7 +39,7 @@ class TestKnowledgeGraphService:
         # Mock Qdrant Search (Match found)
         mock_hit = MagicMock()
         mock_hit.id = "existing_id"
-        mock_hit.metadata = {"id": "existing_id"}
+        mock_hit.payload = {"id": "existing_id"}
         mock_qdrant_instance = mock_qdrant.return_value
         mock_qdrant_instance.search_entities.return_value = [mock_hit]
         service.qdrant = mock_qdrant_instance
@@ -82,7 +82,7 @@ class TestKnowledgeGraphService:
         
         # Mock Entry Points
         mock_hit = MagicMock()
-        mock_hit.metadata = {
+        mock_hit.payload = {
             "id": "e1",
             "name": "Entity1",
             "type": "Type",
