@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     
     # Embedding Settings
     EMBEDDING_MODEL_NAME: str = "sentence-transformers/all-MiniLM-L6-v2"
+    
+    # OpenRouter LLM Settings
+    OPENROUTER_API_KEY: str = ""
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    LLM_MODEL: str = "meta-llama/llama-3.1-8b-instruct"
 
     model_config = SettingsConfigDict(env_file=".env")
 
