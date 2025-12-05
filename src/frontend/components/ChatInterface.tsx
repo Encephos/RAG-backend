@@ -232,7 +232,7 @@ export default function ChatInterface() {
                     <div className="flex flex-col h-full items-start justify-center max-w-4xl mx-auto pb-20 fade-in animate-in duration-700">
                         <h1 className="text-6xl font-medium tracking-tight mb-2">
                             <span className="text-gradient-gemini">
-                                {activeSession === 'Nexus' ? 'Hallo Stoner,' : 'Nexus Council Aktiv'}
+                                {activeSession === 'Nexus' ? 'Moin Stoner,' : 'Nexus Council Aktiv'}
                             </span>
                         </h1>
                         {/* Animated Greeting */}
