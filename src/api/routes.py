@@ -39,7 +39,10 @@ async def ingest_document(
         # Log error here
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/ingest/file", response_model=IngestResponse)
+from fastapi.responses import StreamingResponse
+import json
+
+@router.post("/ingest/file")
 @limiter.limit("20/minute")
 async def ingest_file(
     request: Request,
@@ -47,42 +50,37 @@ async def ingest_file(
     rag_service: RagService = Depends(get_rag_service),
     document_service: DocumentService = Depends(get_document_service)
 ):
-    try:
-        filename = file.filename or "unknown"
-        suffix = Path(filename).suffix.lower()
-        supported = document_service.get_supported_formats()
-        
-        if suffix not in supported:
-            raise HTTPException(status_code=400, detail=f"Unsupported file type: {suffix}")
-            
-        content = await file.read()
-        chunks, metadata = await document_service.process_uploaded_file(content, filename)
-        
-        # Reconstruct full text from chunks or read it? 
-        # process_uploaded_file returns chunks. 
-        # But we can just join chunks or modify process_uploaded_file to return text.
-        # Actually process_uploaded_file gets text internally.
-        # Let's assume we can reconstruct or just pass the file content decoded if text.
-        # But wait, process_uploaded_file handles PDF etc.
-        # I should update process_uploaded_file to return text too, OR just join chunk texts.
-        full_text = "\n\n".join([c.text for c in chunks])
-        
-        await rag_service.ingest_document(full_text, chunks)
-            
-        return IngestResponse(
-            status="success",
-            message=f"File {filename} ingested successfully",
-            filename=filename,
-            num_chunks=len(chunks)
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"File ingest error: {e}")
-        # traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+    source_dir = Path("data/sources")
+    source_dir.mkdir(parents=True, exist_ok=True)
+    filename = file.filename or "unknown"
+    file_path = source_dir / filename
 
-@router.post("/ingest/url", response_model=IngestResponse)
+    async def event_generator():
+        try:
+            yield json.dumps({"step": "upload", "message": "Uploading and saving file...", "progress": 0.0}) + "\n"
+            
+            content = await file.read()
+            with open(file_path, "wb") as f:
+                f.write(content)
+                
+            yield json.dumps({"step": "parsing", "message": "Parsing document structure...", "progress": 0.02}) + "\n"
+            text, parse_metadata = document_service.parse_document(str(file_path))
+            
+            source_url = f"http://localhost:8000/sources/{filename}"
+            parse_metadata["source_url"] = source_url
+            
+            chunks = document_service.chunk_text(text, parse_metadata)
+            full_text = "\n\n".join([c.text for c in chunks])
+            
+            async for event in rag_service.ingest_document_generator(full_text, chunks):
+                yield json.dumps(event) + "\n"
+                
+        except Exception as e:
+            yield json.dumps({"step": "error", "message": str(e)}) + "\n"
+
+    return StreamingResponse(event_generator(), media_type="application/x-ndjson")
+
+@router.post("/ingest/url")
 @limiter.limit("10/minute")
 async def ingest_url(
     request: Request,
@@ -91,30 +89,38 @@ async def ingest_url(
     scraper_service: ScraperService = Depends(get_scraper_service),
     document_service: DocumentService = Depends(get_document_service)
 ):
-    try:
-        max_pages = 5 if url_request.recursive else 1
-        scraped_data = await scraper_service.crawl_domain(url_request.url, max_pages=max_pages)
-        
-        # Combine all pages into one batch to reduce LLM API calls
-        all_chunks = []
-        combined_text = []
-        
-        for page in scraped_data:
-            chunks = document_service.chunk_text(page["text"], page)
-            all_chunks.extend(chunks)
-            combined_text.append(page["text"])
-        
-        # Process all pages together in one call
-        full_text = "\n\n---PAGE BREAK---\n\n".join(combined_text)
-        await rag_service.ingest_document(full_text, all_chunks)
-                 
-        return IngestResponse(
-            status="success",
-            message=f"URL {url_request.url} ingested successfully",
-            pages_processed=len(scraped_data)
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    async def event_generator():
+        try:
+            yield json.dumps({"step": "scraping", "message": f"Crawling {url_request.url}...", "progress": 0.0}) + "\n"
+            
+            max_pages = 5 if url_request.recursive else 1
+            scraped_data = await scraper_service.crawl_domain(url_request.url, max_pages=max_pages)
+            
+            yield json.dumps({"step": "chunking", "message": f"Processed {len(scraped_data)} pages. Chunking text...", "progress": 0.05}) + "\n"
+            
+            all_chunks = []
+            combined_text = []
+            
+            for page in scraped_data:
+                page_metadata = {
+                    "source": page["url"],
+                    "source_url": page["url"],
+                    "type": "web_page",
+                    "depth": page.get("metadata", {}).get("depth", 0)
+                }
+                chunks = document_service.chunk_text(page["text"], page_metadata)
+                all_chunks.extend(chunks)
+                combined_text.append(page["text"])
+            
+            full_text = "\n\n---PAGE BREAK---\n\n".join(combined_text)
+            
+            async for event in rag_service.ingest_document_generator(full_text, all_chunks):
+                yield json.dumps(event) + "\n"
+                
+        except Exception as e:
+            yield json.dumps({"step": "error", "message": str(e)}) + "\n"
+
+    return StreamingResponse(event_generator(), media_type="application/x-ndjson")
 
 @router.post("/query", response_model=QueryResponse)
 @limiter.limit("100/minute")

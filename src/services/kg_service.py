@@ -100,9 +100,10 @@ class KnowledgeGraphService:
         # 1. Vector Entry Point: Find entities relevant to the query
         query_vector = await self.embedder.embed_query(query)
         
-        entry_points = self.qdrant.search_entities(query_vector, limit=3, score_threshold=0.75)
+        entry_points = self.qdrant.search_entities(query_vector, limit=3, score_threshold=0.50)
         
         if not entry_points:
+            logger.debug(f"No graph entry points found above threshold 0.60 for query: {query}")
             return ""
 
         context_lines = []
@@ -131,7 +132,9 @@ class KnowledgeGraphService:
                 target_payload = self.qdrant.get_entity(target_id)
                 if target_payload:
                     target_name = target_payload.get("name")
-                    context_lines.append(f"  - {rel_type} -> {target_name}")
+                    target_type = target_payload.get("type", "Unknown")
+                    target_desc = target_payload.get("description", "")
+                    context_lines.append(f"  - {rel_type} -> {target_name} ({target_type}): {target_desc}")
         
         return "\n".join(context_lines)
 

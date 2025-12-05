@@ -28,32 +28,45 @@ class RagService:
 
     async def ingest_document(self, full_text: str, chunks: List[Any]):
         """
-        Ingest a full document.
-        - Upserts small chunks to Vector DB.
-        - Extracts entities from full text (or large blocks) for Knowledge Graph.
+        Legacy ingestion method. Consumes the generator.
+        """
+        async for _ in self.ingest_document_generator(full_text, chunks):
+            pass
+
+    async def ingest_document_generator(self, full_text: str, chunks: List[Any]):
+        """
+        Generator that yields progress updates during ingestion.
+        Yields: Dict[str, Any] with keys 'step', 'message', 'progress'
         """
         logger.info(f"Starting document ingestion. Size: {len(full_text)} chars, Chunks: {len(chunks)}")
         
+        yield {"step": "start", "message": "Starting ingestion...", "progress": 0.05}
+        
         # 1. Vector Store (Document Chunks)
-        # Process chunks in parallel or batch if possible, but loop is fine for now
-        for chunk in chunks:
+        total_chunks = len(chunks)
+        for i, chunk in enumerate(chunks):
             # Handle both ChunkInfo objects and dicts
             c_text = chunk.text if hasattr(chunk, 'text') else chunk["text"]
             c_meta = chunk.metadata if hasattr(chunk, 'metadata') else chunk["metadata"]
             
             vector = await self.embedding_service.embed_query(c_text)
             self.qdrant_service.upsert(c_text, vector, c_meta)
-        logger.debug(f"Upserted {len(chunks)} chunks to Qdrant.")
+            
+            if i % 5 == 0 or i == total_chunks - 1:
+                progress = 0.05 + (0.25 * ((i + 1) / total_chunks)) # Max 30% for vector indexing
+                yield {"step": "indexing", "message": f"Indexing chunk {i+1}/{total_chunks}...", "progress": progress}
+                
+        logger.debug(f"Upserted {total_chunks} chunks to Qdrant.")
+        yield {"step": "indexing_complete", "message": "Vector indexing complete", "progress": 0.30}
 
         # 2. Knowledge Graph Construction
-        # Use full_text for extraction to reduce API calls and improve context
-        # User has 1M token context window, so we can send very large blocks
-        # 200k chars ~ 50k tokens, well within the 1M token limit
-        
-        chunk_size = 50000 # 50k chars ~ 12k tokens, safer for output limits
+        chunk_size = 50000 
         text_blocks = [full_text[i:i+chunk_size] for i in range(0, len(full_text), chunk_size)]
+        total_blocks = len(text_blocks)
         
-        for block in text_blocks:
+        for i, block in enumerate(text_blocks):
+            yield {"step": "extraction", "message": f"Extracting entities from block {i+1}/{total_blocks} (this may take a while)...", "progress": 0.30 + (0.60 * (i / total_blocks))}
+            
             extraction = await self.llm_service.extract_entities(block)
             logger.debug(f"Extracted {len(extraction.entities)} entities from block.")
             
@@ -80,7 +93,12 @@ class RagService:
                         target_id=target_id,
                         relation_type=relation.type
                     )
+            
+            # Update progress after block is done
+            yield {"step": "extraction_block_done", "message": f"Finished block {i+1}/{total_blocks}", "progress": 0.30 + (0.60 * ((i + 1) / total_blocks))}
+
         logger.info("Document ingestion complete.")
+        yield {"step": "complete", "message": "Ingestion complete!", "progress": 1.0}
 
     async def query(self, query: str, limit: int = 5) -> Dict[str, Any]:
         """

@@ -47,6 +47,11 @@ app.include_router(
     dependencies=[Depends(get_api_key)]
 )
 
+# Mount sources directory for direct access
+# Must be mounted BEFORE the static frontend at root "/"
+os.makedirs("data/sources", exist_ok=True)
+app.mount("/sources", StaticFiles(directory="data/sources"), name="sources")
+
 # Mount frontend static files
 frontend_dir = os.path.join(os.path.dirname(__file__), "frontend/out")
 if os.path.exists(frontend_dir):
@@ -62,4 +67,6 @@ else:
 
 if __name__ == "__main__":
     import uvicorn
+    # Create sources directory if it doesn't exist
+    os.makedirs("data/sources", exist_ok=True)
     uvicorn.run(app, host="0.0.0.0", port=8000)

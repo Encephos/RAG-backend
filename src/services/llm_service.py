@@ -24,13 +24,14 @@ class LLMService:
         stop=stop_after_attempt(10),
         retry=retry_if_exception_type(httpx.HTTPStatusError)
     )
-    async def _call_llm(self, messages: List[Dict[str, str]], temperature: float = 0.0) -> str:
+    async def _call_llm(self, messages: List[Dict[str, str]], temperature: float = 0.0, response_format: Optional[Dict[str, str]] = {"type": "json_object"}) -> str:
         """
         Make an asynchronous call to OpenRouter API.
         
         Args:
             messages: List of message dictionaries (role, content).
             temperature: Sampling temperature.
+            response_format: The format of the response (e.g. {"type": "json_object"} or None for text).
             
         Returns:
             The content of the LLM response.
@@ -55,8 +56,10 @@ class LLMService:
             "model": self.model,
             "messages": messages,
             "temperature": temperature,
-            "response_format": {"type": "json_object"} # Force JSON mode if supported
         }
+        
+        if response_format:
+            payload["response_format"] = response_format
         
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
@@ -114,7 +117,8 @@ class LLMService:
         ]
         
         try:
-            response = await self._call_llm(messages, temperature=0.0)
+            # Explicitly request JSON format
+            response = await self._call_llm(messages, temperature=0.0, response_format={"type": "json_object"})
             
             # Robust JSON extraction
             import re
@@ -169,9 +173,10 @@ class LLMService:
         
         Instructions:
         1. Use ONLY the information from the context to answer. If the context doesn't contain the answer, say so.
-        2. Format your answer using Markdown (e.g., use **bold** for key terms, lists for steps, and headers where appropriate).
+        2. Format your answer using Markdown (e.g., use **bold** for key terms, lists for steps, > for quotes, and headers where appropriate).
         3. Be concise, accurate, and structured.
-        4. IMPORTANT: Always answer in the same language as the user's question (e.g., if asked in German, answer in German; if English, answer in English).
+        4. Do NOT output JSON. Output normal text formatted with Markdown.
+        5. IMPORTANT: Always answer in the same language as the user's question (e.g., if asked in German, answer in German; if English, answer in English).
         """
 
         user_content = f"""Context from documents:
@@ -190,7 +195,8 @@ Answer based on the above context:"""
         ]
         
         try:
-            return await self._call_llm(messages, temperature=0.3)
+            # Request None (text) format for normal chat answer
+            return await self._call_llm(messages, temperature=0.3, response_format=None)
         except Exception as e:
             logger.error(f"Error generating answer: {e}")
             return f"Error generating answer: {e}"

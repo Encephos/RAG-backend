@@ -21,7 +21,7 @@ class DocumentMetadata:
     total_characters: int
 
 class DocumentService:
-    def __init__(self, chunk_size: int = 512, chunk_overlap: int = 50):
+    def __init__(self, chunk_size: int = 1500, chunk_overlap: int = 200):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self._docling_converter = None

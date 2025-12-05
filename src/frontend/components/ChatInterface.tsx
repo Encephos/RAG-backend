@@ -1,15 +1,23 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { api, QueryResponse, SearchResult } from '../utils/api';
 import ReactMarkdown from 'react-markdown';
-import { Send, Bot, User, ChevronDown, ChevronRight, Network, FileText, Loader2 } from 'lucide-react';
+import { Send, Bot, User, ChevronDown, ChevronRight, Network, FileText, Sparkles } from 'lucide-react';
 import { clsx } from 'clsx';
 
 export default function ChatInterface() {
     const [query, setQuery] = useState('');
     const [loading, setLoading] = useState(false);
     const [history, setHistory] = useState<Array<{ type: 'user' | 'bot'; content: string; context?: SearchResult[]; graph?: any }>>([]);
+    const scrollRef = useRef<HTMLDivElement>(null);
+
+    // Auto-scroll to bottom
+    useEffect(() => {
+        if (scrollRef.current) {
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }
+    }, [history, loading]);
 
     const handleQuery = async () => {
         if (!query.trim()) return;
@@ -38,36 +46,50 @@ export default function ChatInterface() {
     };
 
     return (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 h-[600px] flex flex-col">
-            <div className="p-4 border-b border-gray-100 flex items-center gap-2">
-                <Bot className="w-5 h-5 text-blue-600" />
-                <h2 className="font-semibold">RAG Assistant</h2>
+        <div className="glass-panel rounded-2xl h-[700px] flex flex-col overflow-hidden shadow-2xl shadow-black/20">
+            {/* Header */}
+            <div className="p-5 border-b border-gray-700/50 flex items-center gap-3 bg-gradient-to-r from-violet-900/20 to-transparent">
+                <div className="w-8 h-8 rounded-lg bg-violet-600/20 flex items-center justify-center border border-violet-500/30">
+                    <Bot className="w-5 h-5 text-violet-400" />
+                </div>
+                <div>
+                    <h2 className="font-semibold text-gray-100">AI Assistant</h2>
+                    <p className="text-xs text-gray-400 flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                        Ready to help
+                    </p>
+                </div>
             </div>
 
             {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-6">
+            <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-6 scroll-smooth">
                 {history.length === 0 && (
-                    <div className="text-center text-gray-400 mt-20">
-                        <Bot className="w-12 h-12 mx-auto mb-2 opacity-20" />
-                        <p>Ask me anything about your documents...</p>
+                    <div className="h-full flex flex-col items-center justify-center text-center p-8">
+                        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-600/20 to-indigo-600/20 flex items-center justify-center mb-4 border border-violet-500/20 shadow-inner shadow-violet-500/10">
+                            <Sparkles className="w-8 h-8 text-violet-400" />
+                        </div>
+                        <h3 className="text-xl font-medium text-gray-200 mb-2">How can I help you today?</h3>
+                        <p className="text-gray-400 max-w-sm">
+                            Ask me questions about your documents. I'll search the vector database and check the knowledge graph for insights.
+                        </p>
                     </div>
                 )}
 
                 {history.map((msg, idx) => (
-                    <div key={idx} className={clsx('flex gap-3', msg.type === 'user' ? 'justify-end' : 'justify-start')}>
+                    <div key={idx} className={clsx('flex gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300', msg.type === 'user' ? 'justify-end' : 'justify-start')}>
                         {msg.type === 'bot' && (
-                            <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                                <Bot className="w-5 h-5 text-blue-600" />
+                            <div className="w-8 h-8 rounded-lg bg-violet-600/20 flex items-center justify-center flex-shrink-0 border border-violet-500/30 mt-1">
+                                <Bot className="w-5 h-5 text-violet-400" />
                             </div>
                         )}
 
                         <div className={clsx(
-                            'max-w-[80%] rounded-2xl p-4',
+                            'max-w-[85%] rounded-2xl p-5 shadow-sm',
                             msg.type === 'user'
-                                ? 'bg-blue-600 text-white rounded-tr-none'
-                                : 'bg-gray-50 text-gray-800 rounded-tl-none border border-gray-100'
+                                ? 'bg-gradient-to-br from-violet-600 to-indigo-600 text-white rounded-tr-none shadow-violet-900/20'
+                                : 'bg-slate-800/50 border border-slate-700/50 text-gray-200 rounded-tl-none backdrop-blur-sm'
                         )}>
-                            <div className="prose prose-sm max-w-none dark:prose-invert">
+                            <div className="prose prose-invert prose-sm max-w-none text-gray-300 prose-headings:text-gray-100 prose-strong:text-violet-300 prose-a:text-blue-400 prose-code:text-amber-300 prose-code:bg-slate-900/50 prose-code:px-1 prose-code:rounded prose-ul:marker:text-violet-500">
                                 <ReactMarkdown>{msg.content}</ReactMarkdown>
                             </div>
 
@@ -78,43 +100,51 @@ export default function ChatInterface() {
                         </div>
 
                         {msg.type === 'user' && (
-                            <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
-                                <User className="w-5 h-5 text-gray-600" />
+                            <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center flex-shrink-0 mt-1 shadow-lg shadow-indigo-600/20">
+                                <User className="w-5 h-5 text-white" />
                             </div>
                         )}
                     </div>
                 ))}
 
                 {loading && (
-                    <div className="flex gap-3">
-                        <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                            <Bot className="w-5 h-5 text-blue-600" />
+                    <div className="flex gap-4 animate-pulse">
+                        <div className="w-8 h-8 rounded-lg bg-violet-600/20 flex items-center justify-center flex-shrink-0 border border-violet-500/30">
+                            <Bot className="w-5 h-5 text-violet-400" />
                         </div>
-                        <div className="bg-gray-50 rounded-2xl rounded-tl-none p-4 border border-gray-100 flex items-center gap-2 text-gray-500">
-                            <Loader2 className="w-4 h-4 animate-spin" /> Thinking...
+                        <div className="bg-slate-800/50 border border-slate-700/50 rounded-2xl rounded-tl-none p-4 flex items-center gap-3">
+                            <div className="flex gap-1">
+                                <span className="w-2 h-2 bg-violet-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                                <span className="w-2 h-2 bg-violet-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                                <span className="w-2 h-2 bg-violet-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                            </div>
+                            <span className="text-sm text-gray-400 font-medium">Analyzing...</span>
                         </div>
                     </div>
                 )}
             </div>
 
             {/* Input Area */}
-            <div className="p-4 border-t border-gray-100">
-                <div className="flex gap-2">
+            <div className="p-5 border-t border-gray-700/50 bg-slate-900/30 backdrop-blur-md">
+                <div className="flex gap-3 relative">
                     <input
                         type="text"
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && handleQuery()}
                         placeholder="Type your question..."
-                        className="flex-1 p-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none text-black"
+                        className="flex-1 bg-slate-800/50 border border-slate-700 text-gray-200 placeholder-gray-500 rounded-xl px-4 py-3 focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50 outline-none transition-all shadow-inner"
                     />
                     <button
                         onClick={handleQuery}
                         disabled={loading || !query.trim()}
-                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                        className="px-5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-violet-600/20 flex items-center justify-center group"
                     >
-                        <Send className="w-5 h-5" />
+                        <Send className="w-5 h-5 group-hover:translate-x-0.5 transition-transform" />
                     </button>
+                </div>
+                <div className="text-center mt-2">
+                    <p className="text-[10px] text-gray-600 uppercase tracking-wider font-medium">Powered by Gemini 2.5 + Qdrant</p>
                 </div>
             </div>
         </div>
@@ -127,30 +157,46 @@ function ContextAccordion({ context, graph }: { context?: SearchResult[], graph?
     if ((!context || context.length === 0) && (!graph || Object.keys(graph).length === 0)) return null;
 
     return (
-        <div className="mt-3 border-t border-gray-200/50 pt-2">
+        <div className="mt-4 border-t border-gray-700/50 pt-3">
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-blue-600 transition-colors"
+                className="flex items-center gap-2 text-xs font-semibold text-gray-500 hover:text-violet-400 transition-colors uppercase tracking-wide group w-full"
             >
-                {isOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                View Sources & Graph Context
+                {isOpen ? <ChevronDown className="w-3 h-3 group-hover:text-violet-400" /> : <ChevronRight className="w-3 h-3 group-hover:text-violet-400" />}
+                Sources & Graph Context
             </button>
 
             {isOpen && (
-                <div className="mt-2 space-y-3 text-sm">
+                <div className="mt-3 space-y-4 animate-in slide-in-from-top-2 duration-200">
                     {/* Vector Context */}
                     {context && context.length > 0 && (
                         <div>
-                            <h4 className="flex items-center gap-1 text-xs font-semibold text-gray-400 uppercase mb-1">
-                                <FileText className="w-3 h-3" /> Retrieved Chunks
+                            <h4 className="flex items-center gap-2 text-[10px] font-bold text-gray-400 uppercase mb-2 tracking-wider">
+                                <FileText className="w-3 h-3 text-sky-400" /> Retrieved Documents
                             </h4>
-                            <div className="space-y-2">
+                            <div className="grid gap-2">
                                 {context.map((ctx, i) => (
-                                    <div key={i} className="bg-white p-2 rounded border border-gray-100 text-xs text-gray-600">
-                                        <p className="line-clamp-2 italic">"{ctx.text}"</p>
-                                        <div className="mt-1 flex justify-between text-[10px] text-gray-400">
-                                            <span>Score: {ctx.score.toFixed(2)}</span>
-                                            <span>{ctx.metadata?.filename || ctx.metadata?.source || 'Unknown Source'}</span>
+                                    <div key={i} className="bg-slate-900/50 p-3 rounded-lg border border-slate-700/50 group hover:border-violet-500/30 transition-colors">
+                                        <p className="text-xs text-gray-400 line-clamp-2 italic font-serif">"{ctx.text}"</p>
+                                        <div className="mt-2 flex items-center justify-between">
+                                            <span className="text-[10px] font-mono text-violet-400 bg-violet-900/20 px-1.5 py-0.5 rounded">
+                                                Score: {ctx.score.toFixed(2)}
+                                            </span>
+                                            {ctx.metadata?.source_url ? (
+                                                <a
+                                                    href={ctx.metadata.source_url}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="text-[10px] text-violet-400 hover:text-violet-300 truncate max-w-[150px] underline decoration-violet-500/30 transition-colors"
+                                                    title="Open Source File"
+                                                >
+                                                    {ctx.metadata?.filename || 'Open Source'}
+                                                </a>
+                                            ) : (
+                                                <span className="text-[10px] text-gray-500 truncate max-w-[150px]" title={ctx.metadata?.filename || ctx.metadata?.source}>
+                                                    {ctx.metadata?.filename || ctx.metadata?.source || 'Unknown Source'}
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
                                 ))}
@@ -161,10 +207,10 @@ function ContextAccordion({ context, graph }: { context?: SearchResult[], graph?
                     {/* Graph Context */}
                     {graph && graph.summary && (
                         <div>
-                            <h4 className="flex items-center gap-1 text-xs font-semibold text-gray-400 uppercase mb-1">
-                                <Network className="w-3 h-3" /> Knowledge Graph
+                            <h4 className="flex items-center gap-2 text-[10px] font-bold text-gray-400 uppercase mb-2 tracking-wider">
+                                <Network className="w-3 h-3 text-emerald-400" /> Knowledge Graph
                             </h4>
-                            <div className="bg-blue-50/50 p-2 rounded border border-blue-100 text-xs text-blue-800">
+                            <div className="bg-emerald-900/10 p-3 rounded-lg border border-emerald-500/20 text-xs text-emerald-200/80 leading-relaxed font-mono">
                                 {graph.summary}
                             </div>
                         </div>
