@@ -92,28 +92,20 @@ class LLMService:
         """
         system_prompt = """You are an expert Knowledge Graph builder. Extract entities and relations from the text.
         
-        Return a JSON object with two keys: "entities" and "relations".
+        STRICTLY return a valid JSON object with two keys: "entities" and "relations".
+        Do NOT wrap the JSON in markdown code blocks. Return raw JSON only.
         
         1. "entities": List of objects with:
            - "name": Canonical name of the entity
            - "type": Type (Person, Organization, Location, Concept, etc.)
-           - "description": A short, descriptive summary of what this entity is based on the text (crucial for semantic search).
+           - "description": A concise (max 10 words) summary.
            
         2. "relations": List of objects with:
            - "source": Name of source entity
            - "target": Name of target entity
-           - "type": Relationship type (snake_case, e.g., founded_by, located_in)
+           - "type": Relationship type (snake_case)
            
-        Example:
-        {
-          "entities": [
-            {"name": "Apple", "type": "Organization", "description": "Technology company known for iPhone."},
-            {"name": "Steve Jobs", "type": "Person", "description": "Co-founder of Apple."}
-          ],
-          "relations": [
-            {"source": "Apple", "target": "Steve Jobs", "type": "founded_by"}
-          ]
-        }
+        Ensure the JSON is valid and complete.
         """
 
         messages = [
@@ -174,9 +166,13 @@ class LLMService:
             The generated answer string.
         """
         system_prompt = """You are a helpful assistant that answers questions based on the provided context.
-Use ONLY the information from the context to answer. If the context doesn't contain the answer, say so.
-Be concise and accurate.
-IMPORTANT: Always answer in the same language as the user's question (e.g., if asked in German, answer in German; if English, answer in English)."""
+        
+        Instructions:
+        1. Use ONLY the information from the context to answer. If the context doesn't contain the answer, say so.
+        2. Format your answer using Markdown (e.g., use **bold** for key terms, lists for steps, and headers where appropriate).
+        3. Be concise, accurate, and structured.
+        4. IMPORTANT: Always answer in the same language as the user's question (e.g., if asked in German, answer in German; if English, answer in English).
+        """
 
         user_content = f"""Context from documents:
 {context}

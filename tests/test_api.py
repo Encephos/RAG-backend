@@ -149,7 +149,7 @@ def test_ingest_file_pdf_success(mock_doc_service, mock_rag_service):
     """Test successful PDF file ingestion."""
     # Mock RagService
     mock_rag_instance = mock_rag_service.return_value
-    mock_rag_instance.ingest = AsyncMock(return_value=None)
+    mock_rag_instance.ingest_document = AsyncMock(return_value=None)
     
     # Mock DocumentService
     mock_doc_instance = mock_doc_service.return_value
@@ -184,7 +184,7 @@ def test_ingest_file_pdf_success(mock_doc_service, mock_rag_service):
     data = response.json()
     assert data["status"] == "success"
     assert data["num_chunks"] == 1
-    mock_rag_instance.ingest.assert_called_once()
+    mock_rag_instance.ingest_document.assert_called_once()
 
 @patch("src.api.routes.RagService")
 @patch("src.api.routes.ScraperService")
@@ -193,7 +193,7 @@ def test_ingest_url_success(mock_doc_service, mock_scraper_service, mock_rag_ser
     """Test successful URL ingestion."""
     # Mock RagService
     mock_rag_instance = mock_rag_service.return_value
-    mock_rag_instance.ingest = AsyncMock(return_value=None)
+    mock_rag_instance.ingest_document = AsyncMock(return_value=None)
     
     # Mock ScraperService
     mock_scraper_instance = mock_scraper_service.return_value
@@ -222,5 +222,5 @@ def test_ingest_url_success(mock_doc_service, mock_scraper_service, mock_rag_ser
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "success"
-    mock_rag_instance.ingest.assert_called_once()
+    mock_rag_instance.ingest_document.assert_called_once()
     assert data["pages_processed"] == 1

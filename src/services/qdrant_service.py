@@ -3,6 +3,9 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from src.core.config import settings
 import uuid
+import logging
+
+logger = logging.getLogger(__name__)
 
 class QdrantService:
     def __init__(self):
@@ -16,28 +19,39 @@ class QdrantService:
 
     def _ensure_collections(self):
         """Create collections if they don't exist."""
-        collections = self.client.get_collections().collections
-        existing_names = [c.name for c in collections]
-        
-        # Document Collection
-        if self.collection_name not in existing_names:
-            self.client.create_collection(
-                collection_name=self.collection_name,
-                vectors_config=models.VectorParams(
-                    size=384,
-                    distance=models.Distance.COSINE
-                )
-            )
+        try:
+            collections = self.client.get_collections().collections
+            existing_names = [c.name for c in collections]
+            logger.info(f"Existing Qdrant collections: {existing_names}")
             
-        # Entity Collection (for Knowledge Graph)
-        if self.entity_collection_name not in existing_names:
-            self.client.create_collection(
-                collection_name=self.entity_collection_name,
-                vectors_config=models.VectorParams(
-                    size=384,
-                    distance=models.Distance.COSINE
+            # Document Collection
+            if self.collection_name not in existing_names:
+                logger.info(f"Creating collection: {self.collection_name}")
+                self.client.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=models.VectorParams(
+                        size=384,
+                        distance=models.Distance.COSINE
+                    )
                 )
-            )
+            else:
+                logger.info(f"Collection {self.collection_name} already exists.")
+                
+            # Entity Collection (for Knowledge Graph)
+            if self.entity_collection_name not in existing_names:
+                logger.info(f"Creating collection: {self.entity_collection_name}")
+                self.client.create_collection(
+                    collection_name=self.entity_collection_name,
+                    vectors_config=models.VectorParams(
+                        size=384,
+                        distance=models.Distance.COSINE
+                    )
+                )
+            else:
+                logger.info(f"Collection {self.entity_collection_name} already exists.")
+                
+        except Exception as e:
+            logger.error(f"Error ensuring collections: {e}")
 
     def upsert(self, text: str, vector: List[float], metadata: Dict[str, Any] = None):
         """Upsert a single document chunk."""
@@ -49,16 +63,34 @@ class QdrantService:
         # Generate deterministic ID based on text content to prevent duplicates
         doc_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, text))
         
-        self.client.upsert(
-            collection_name=self.collection_name,
-            points=[
-                models.PointStruct(
-                    id=doc_id,
-                    vector=vector,
-                    payload=metadata
+        try:
+            self.client.upsert(
+                collection_name=self.collection_name,
+                points=[
+                    models.PointStruct(
+                        id=doc_id,
+                        vector=vector,
+                        payload=metadata
+                    )
+                ]
+            )
+        except Exception as e:
+            if "Not found" in str(e) or "doesn't exist" in str(e):
+                logger.warning(f"Collection not found during upsert. Re-creating...")
+                self._ensure_collections()
+                # Retry once
+                self.client.upsert(
+                    collection_name=self.collection_name,
+                    points=[
+                        models.PointStruct(
+                            id=doc_id,
+                            vector=vector,
+                            payload=metadata
+                        )
+                    ]
                 )
-            ]
-        )
+            else:
+                raise e
 
     def search(self, vector: List[float], limit: int = 5) -> List[Dict[str, Any]]:
         """Search for similar document chunks."""

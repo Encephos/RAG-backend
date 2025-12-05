@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { api, QueryResponse, SearchResult } from '../utils/api';
+import ReactMarkdown from 'react-markdown';
 import { Send, Bot, User, ChevronDown, ChevronRight, Network, FileText, Loader2 } from 'lucide-react';
 import { clsx } from 'clsx';
 
@@ -66,7 +67,9 @@ export default function ChatInterface() {
                                 ? 'bg-blue-600 text-white rounded-tr-none'
                                 : 'bg-gray-50 text-gray-800 rounded-tl-none border border-gray-100'
                         )}>
-                            <p className="whitespace-pre-wrap">{msg.content}</p>
+                            <div className="prose prose-sm max-w-none dark:prose-invert">
+                                <ReactMarkdown>{msg.content}</ReactMarkdown>
+                            </div>
 
                             {/* Context & Graph Accordion */}
                             {msg.type === 'bot' && (msg.context || msg.graph) && (

@@ -50,7 +50,7 @@ class RagService:
         # User has 1M token context window, so we can send very large blocks
         # 200k chars ~ 50k tokens, well within the 1M token limit
         
-        chunk_size = 200000 # 200k chars ~ 50k tokens
+        chunk_size = 50000 # 50k chars ~ 12k tokens, safer for output limits
         text_blocks = [full_text[i:i+chunk_size] for i in range(0, len(full_text), chunk_size)]
         
         for block in text_blocks:
