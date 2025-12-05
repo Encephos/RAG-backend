@@ -43,7 +43,7 @@ export default function Sidebar({ activeView, onViewChange }: SidebarProps) {
                 />
                 <NavItem
                     icon={Upload}
-                    label="Ingest Content"
+                    label="Inhalte aufnehmen"
                     isActive={activeView === 'ingest'}
                     isCollapsed={collapsed}
                     onClick={() => onViewChange('ingest')}
@@ -54,7 +54,7 @@ export default function Sidebar({ activeView, onViewChange }: SidebarProps) {
             <div className="mt-auto">
                 <NavItem
                     icon={Settings}
-                    label="Settings"
+                    label="Einstellungen"
                     isActive={false}
                     isCollapsed={collapsed}
                     onClick={() => { }} // Placeholder

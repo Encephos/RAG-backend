@@ -200,3 +200,142 @@ Answer based on the above context:"""
         except Exception as e:
             logger.error(f"Error generating answer: {e}")
             return f"Error generating answer: {e}"
+    async def orchestrate_council(self, query: str, members_info: List[Dict[str, str]]) -> List[Dict[str, str]]:
+        """
+        Orchestrate the council by assigning tasks to selected members based on the user's query.
+        
+        Args:
+            query: The user's original query.
+            members_info: List of dicts with 'id', 'role', 'description'.
+            
+        Returns:
+            List of dicts with 'id' and 'task'.
+        """
+        members_desc = "\n".join([f"- ID: {m['id']} | Role: {m['role']} | Description: {m['description']}" for m in members_info])
+        
+        system_prompt = f"""You are the Orchestrator of the Nexus Council. 
+        Your goal is to break down a user's request into specific sub-tasks for the available experts.
+        
+        Available Experts:
+        {members_desc}
+        
+        Instructions:
+        1. Analyze the user's query.
+        2. Assign a specific questions or task to EACH valid expert that is relevant.
+        3. If an expert is not relevant to the query, do not assign a task (or assign "None").
+        4. Return a JSON object with a key "assignments" containing a list of objects with "member_id" and "task".
+        
+        Example JSON:
+        {{
+            "assignments": [
+                {{ "member_id": "botanist", "task": "Explain the genetic differences between Indica and Sativa regarding sleep." }},
+                {{ "member_id": "pharmacologist", "task": "Analyze the sedative effects of these strains on the CNS." }}
+            ]
+        }}
+        """
+        
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"User Query: {query}"}
+        ]
+        
+        try:
+            response = await self._call_llm(messages, temperature=0.2, response_format={"type": "json_object"})
+            data = json.loads(response)
+            assignments = data.get("assignments", [])
+            
+            # Filter valid assignments
+            valid_assignments = []
+            valid_ids = {m['id'] for m in members_info}
+            
+            for assignment in assignments:
+                mid = assignment.get("member_id")
+                task = assignment.get("task")
+                if mid in valid_ids and task and task.lower() != "none":
+                    valid_assignments.append({"member_id": mid, "task": task})
+                    
+            return valid_assignments
+        except Exception as e:
+            logger.error(f"Error orchestrating council: {e}")
+            return []
+
+    async def generate_expert_answer(self, task: str, context: str, role: str, system_instruction: str) -> str:
+        """
+        Generate an answer from a specific expert persona.
+        """
+        system_prompt = f"""You are a {role}.
+        {system_instruction}
+        
+        Instructions:
+        1. Answer the assigned task based ONLY on the provided context.
+        2. If context is insufficient, state what is known and what is missing based on your expertise.
+        3. Be concise and professional.
+        4. Do NOT output JSON. Output Markdown text.
+        """
+        
+        user_content = f"""Context:
+        {context}
+        
+        Task: {task}
+        """
+        
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content}
+        ]
+        
+        try:
+            return await self._call_llm(messages, temperature=0.3, response_format=None)
+        except Exception as e:
+            logger.error(f"Error generating expert answer ({role}): {e}")
+            return "Unable to generate answer due to an internal error."
+
+    async def synthesize_council_answer(self, query: str, master_context: str, member_results: List[Dict[str, Any]]) -> str:
+        """
+        Synthesize the final answer from the Council Master (Synthesizer).
+        """
+        
+        # Format member contributions
+        contributions = ""
+        for res in member_results:
+            contributions += f"""
+            ### Report from {res['role']}:
+            **Task**: {res['task']}
+            **Findings**:
+            {res['answer']}
+            ---
+            """
+            
+        system_prompt = """You are the Head of the Nexus Council.
+        Your goal is to synthesize a comprehensive answer to the user's query by integrating reports from your panel of experts and your own master knowledge.
+        
+        Instructions:
+        1. Answer the User Query comprehensively.
+        2. Integrate insights from the Expert Reports. Explicitly cite the experts (e.g., "As our Botanist noted...", "The Toxicologist warns...").
+        3. Use the Master Context to fill in gaps or provide general overview.
+        4. Structure the answer logically with Markdown (Headers, Bullet points).
+        5. Tone: Authoritative, balanced, and scientifically grounded.
+        6. Always answer in the language of the User's Query.
+        """
+        
+        user_content = f"""User Query: {query}
+        
+        Master Context (General Knowledge):
+        {master_context}
+        
+        Expert Council Reports:
+        {contributions}
+        
+        Please provide the final synthesized response.
+        """
+        
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content}
+        ]
+        
+        try:
+            return await self._call_llm(messages, temperature=0.4, response_format=None)
+        except Exception as e:
+            logger.error(f"Error synthesizing answer: {e}")
+            return "Error synthesizing final council response."

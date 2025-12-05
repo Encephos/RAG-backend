@@ -132,20 +132,40 @@ async def ingest_url(
 
     return StreamingResponse(event_generator(), media_type="application/x-ndjson")
 
+from src.services.council_service import CouncilService
+
+def get_council_service():
+    return CouncilService()
+
 @router.post("/query", response_model=QueryResponse)
 @limiter.limit("100/minute")
 async def query_rag(
     request: Request,
     query_request: QueryRequest,
-    rag_service: RagService = Depends(get_rag_service)
+    rag_service: RagService = Depends(get_rag_service),
+    council_service: CouncilService = Depends(get_council_service)
 ):
     try:
-        result = await rag_service.query(query_request.query, query_request.limit)
-        return QueryResponse(
-            answer=result["answer"],
-            context=result["context"],
-            graph_context=result["graph_context"]
-        )
+        if query_request.selected_council_members and len(query_request.selected_council_members) > 0:
+            # Council Mode
+            result = await council_service.process_council_query(
+                query_request.query, 
+                query_request.selected_council_members
+            )
+            return QueryResponse(
+                answer=result["answer"],
+                context=result["context"],
+                graph_context=result.get("graph_context", {}),
+                council_results=result.get("council_results")
+            )
+        else:
+            # Standard Mode
+            result = await rag_service.query(query_request.query, query_request.limit)
+            return QueryResponse(
+                answer=result["answer"],
+                context=result["context"],
+                graph_context=result["graph_context"]
+            )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -148,7 +148,7 @@ export default function IngestForm() {
                 <div className="p-2 bg-blue-100 rounded-lg border border-blue-200">
                     <Upload className="w-5 h-5 text-blue-600" />
                 </div>
-                Ingest Content
+                Inhalte aufnehmen
             </h2>
 
             {/* Tabs */}
@@ -179,7 +179,7 @@ export default function IngestForm() {
                         <textarea
                             value={text}
                             onChange={(e) => setText(e.target.value)}
-                            placeholder="Paste text content here..."
+                            placeholder="Textinhalt hier einfügen..."
                             className="w-full h-40 p-4 rounded-xl bg-gray-50 border border-gray-200 text-gray-900 placeholder-gray-400 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all resize-none"
                         />
                     </div>
@@ -200,7 +200,7 @@ export default function IngestForm() {
                             </div>
                             <div className="space-y-1">
                                 <span className="block text-sm font-medium text-gray-700">
-                                    {file ? file.name : 'Click to upload'}
+                                    {file ? file.name : 'Klicken zum Hochladen'}
                                 </span>
                                 <span className="block text-xs text-gray-400">
                                     PDF, DOCX, TXT, MD
@@ -228,7 +228,7 @@ export default function IngestForm() {
                                 id="recursive"
                             />
                             <label htmlFor="recursive" className="text-sm text-gray-600 cursor-pointer select-none">
-                                Recursive Crawling (Max 5 pages)
+                                Rekursives Crawling (Max 5 Seiten)
                             </label>
                         </div>
                     </div>
@@ -237,7 +237,7 @@ export default function IngestForm() {
                 {/* Collection Selector */}
                 <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
                     <label className="block text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wider text-xs">
-                        Target RAG Collections (Master + Selection)
+                        Ziel-Kollektionen (Master + Auswahl)
                     </label>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {COLLECTIONS.map((col) => (
@@ -297,7 +297,7 @@ export default function IngestForm() {
                             disabled={loading || (activeTab === 'text' && !text) || (activeTab === 'url' && !url) || (activeTab === 'file' && !file)}
                             className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full font-medium transition-all shadow-md shadow-blue-600/20 hover:shadow-lg hover:shadow-blue-600/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
                         >
-                            Ingest Content
+                            Inhalte aufnehmen
                         </button>
                     </div>
                 )}

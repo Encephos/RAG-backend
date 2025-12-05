@@ -16,16 +16,25 @@ class IngestResponse(BaseModel):
 class QueryRequest(BaseModel):
     query: str
     limit: int = 5
+    selected_council_members: Optional[List[str]] = None 
 
 class SearchResult(BaseModel):
     text: str
     score: float
     metadata: Dict[str, Any]
 
+class CouncilMemberResult(BaseModel):
+    member_id: str
+    role: str
+    task: str
+    answer: str
+    used_context: List[SearchResult]
+
 class QueryResponse(BaseModel):
     answer: str
     context: List[SearchResult]
     graph_context: Dict[str, Any]
+    council_results: Optional[List[CouncilMemberResult]] = None
 
 # File upload schemas
 class ChunkInfoResponse(BaseModel):

@@ -15,34 +15,37 @@ describe('ChatInterface', () => {
 
     it('renders correctly', () => {
         render(<ChatInterface />);
-        expect(screen.getByText('RAG Assistant')).toBeInTheDocument();
-        expect(screen.getByPlaceholderText('Type your question...')).toBeInTheDocument();
+        expect(screen.getByText('Hallo, Mensch')).toBeInTheDocument();
+        expect(screen.getByPlaceholderText('Fragen Sie Nexus...')).toBeInTheDocument();
     });
 
     it('sends query and displays response', async () => {
         (api.post as jest.Mock).mockResolvedValueOnce({
             data: {
-                answer: 'This is the answer.',
+                answer: 'Das ist die Antwort.',
                 context: [{ text: 'Context chunk', score: 0.9, metadata: {} }],
-                graph_context: { summary: 'Graph info' }
+                graph_context: { summary: 'Graph info' },
+                council_results: []
             }
         });
 
         render(<ChatInterface />);
 
-        const input = screen.getByPlaceholderText('Type your question...');
-        fireEvent.change(input, { target: { value: 'What is RAG?' } });
+        const input = screen.getByPlaceholderText('Fragen Sie Nexus...');
+        fireEvent.change(input, { target: { value: 'Was ist RAG?' } });
 
-        const button = screen.getByRole('button'); // Send button
-        fireEvent.click(button);
+        // Find send button via icon testid (there are multiple, the input one is last)
+        const sendIcons = screen.getAllByTestId('icon-send');
+        const sendButton = sendIcons[sendIcons.length - 1].closest('button');
+        if (sendButton) fireEvent.click(sendButton);
 
         // Check user message
-        expect(screen.getByText('What is RAG?')).toBeInTheDocument();
+        expect(screen.getByText('Was ist RAG?')).toBeInTheDocument();
 
         // Check bot response
         await waitFor(() => {
-            expect(api.post).toHaveBeenCalledWith('/query', { query: 'What is RAG?', limit: 5 });
-            expect(screen.getByText('This is the answer.')).toBeInTheDocument();
+            expect(api.post).toHaveBeenCalledWith('/query', expect.objectContaining({ query: 'Was ist RAG?' }));
+            expect(screen.getByText('Das ist die Antwort.')).toBeInTheDocument();
         });
     });
 });

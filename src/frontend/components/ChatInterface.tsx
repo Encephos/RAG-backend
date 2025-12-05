@@ -8,11 +8,32 @@ import { clsx } from 'clsx';
 
 type SessionId = 'Nexus' | 'Nexus Council';
 
+interface CouncilMember {
+    id: string;
+    name: string;
+    role: string;
+    icon: string;
+    description: string;
+}
+
+const COUNCIL_MEMBERS_LIST: CouncilMember[] = [
+    { id: 'botanist', name: 'Botaniker', role: 'Pflanze & Anbau', icon: '🌿', description: 'Genetik, Züchtung' },
+    { id: 'chemist', name: 'Chemiker', role: 'Analyse', icon: '🧪', description: 'Inhaltsstoffe, Terpene' },
+    { id: 'pharmacologist', name: 'Pharmakologe', role: 'Wirkung', icon: '💊', description: 'Endocannabinoid-System' },
+    { id: 'toxicologist', name: 'Toxikologe', role: 'Risiken', icon: '⚠️', description: 'Nebenwirkungen' },
+    { id: 'pain_specialist', name: 'Schmerzmediziner', role: 'Therapie', icon: '⚕️', description: 'Klinische Anwendung' },
+    { id: 'psychiatrist', name: 'Psychiater', role: 'Mental Health', icon: '🧠', description: 'Psyche & Sucht' },
+    { id: 'epidemiologist', name: 'Epidemiologe', role: 'Daten', icon: '📊', description: 'Konsumstudien' },
+    { id: 'forensic', name: 'Forensiker', role: 'Recht & Verkehr', icon: '⚖️', description: 'Grenzwerte' },
+    { id: 'product_expert', name: 'Produktexperte', role: 'Qualität', icon: '🏭', description: 'Herstellung' },
+];
+
 interface Message {
     type: 'user' | 'bot';
     content: string;
     context?: SearchResult[];
     graph?: any;
+    council_results?: any[];
 }
 
 export default function ChatInterface() {
@@ -25,6 +46,10 @@ export default function ChatInterface() {
         'Nexus': [],
         'Nexus Council': []
     });
+
+    // Council Selection State
+    const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
+    const [showCouncilSelector, setShowCouncilSelector] = useState(false);
 
     // Dropdown state
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -72,11 +97,25 @@ export default function ChatInterface() {
         }
     }, [history, loading, activeSession]);
 
+    const toggleMember = (id: string) => {
+        setSelectedMembers(prev =>
+            prev.includes(id) ? prev.filter(m => m !== id) : [...prev, id]
+        );
+    };
+
     const handleQuery = async (text: string = query) => {
         if (!text.trim()) return;
 
+        // Ensure council members are selected in council mode
+        if (activeSession === 'Nexus Council' && selectedMembers.length === 0) {
+            alert("Bitte wähle mindestens ein Council-Mitglied aus.");
+            setShowCouncilSelector(true);
+            return;
+        }
+
         const userQuery = text;
         setQuery('');
+        setShowCouncilSelector(false); // Close selector on send
 
         // Optimistic update for current session
         setSessions(prev => ({
@@ -86,17 +125,21 @@ export default function ChatInterface() {
         setLoading(true);
 
         try {
-            // Future: Could pass activeSession to backend to use different system prompts
-            const response = await api.post<QueryResponse>('/query', { query: userQuery, limit: 15 });
+            const payload: any = { query: userQuery, limit: 15 };
+            if (activeSession === 'Nexus Council') {
+                payload.selected_council_members = selectedMembers;
+            }
+
+            const response = await api.post<QueryResponse>('/query', payload);
 
             setSessions(prev => ({
                 ...prev,
                 [activeSession]: [...prev[activeSession], {
                     type: 'bot',
-                    // Optional: Add prefix if it's Council
                     content: response.data.answer,
                     context: response.data.context,
-                    graph: response.data.graph_context
+                    graph: response.data.graph_context,
+                    council_results: response.data.council_results
                 }]
             }));
         } catch (error: any) {
@@ -152,7 +195,7 @@ export default function ChatInterface() {
                             ))}
                         </div>
                         <div className="bg-gray-50 px-4 py-2 text-[10px] text-gray-400 uppercase font-medium tracking-wider border-t border-gray-100">
-                            Switch Mode
+                            Modus wechseln
                         </div>
                     </div>
                 )}
@@ -164,7 +207,7 @@ export default function ChatInterface() {
                     <div className="flex flex-col h-full items-start justify-center max-w-4xl mx-auto pb-20 fade-in animate-in duration-700">
                         <h1 className="text-6xl font-medium tracking-tight mb-2">
                             <span className="text-gradient-gemini">
-                                {activeSession === 'Nexus' ? 'Hello, Human' : 'Council Active'}
+                                {activeSession === 'Nexus' ? 'Hallo, Mensch' : 'Rat Aktiv'}
                             </span>
                         </h1>
                         {/* Animated Greeting */}
@@ -222,6 +265,34 @@ export default function ChatInterface() {
                                         <ReactMarkdown>{msg.content}</ReactMarkdown>
                                     </div>
 
+                                    {/* Council Breakdown */}
+                                    {msg.type === 'bot' && msg.council_results && msg.council_results.length > 0 && (
+                                        <div className="mt-4 grid grid-flow-row gap-2">
+                                            <h4 className="text-xs font-semibold text-gray-500 uppercase flex items-center gap-2">
+                                                <Users className="w-3 h-3" /> Ratsberichte
+                                            </h4>
+                                            {msg.council_results.map((res, i) => (
+                                                <div key={i} className="bg-white border rounded-xl overflow-hidden shadow-sm">
+                                                    <div className="px-4 py-3 bg-gray-50 border-b flex justify-between items-center">
+                                                        <div className="flex items-center gap-2 text-sm font-medium text-gray-900">
+                                                            {/* Find icon based on ID would be better, but role is ok */}
+                                                            <span className="text-lg">
+                                                                {COUNCIL_MEMBERS_LIST.find(m => m.id === res.member_id)?.icon || '👤'}
+                                                            </span>
+                                                            {COUNCIL_MEMBERS_LIST.find(m => m.id === res.member_id)?.name || res.role}
+                                                        </div>
+                                                        <span className="text-[10px] text-gray-500 bg-white px-2 py-1 rounded-full border border-gray-200 truncate max-w-[150px]">
+                                                            {res.task}
+                                                        </span>
+                                                    </div>
+                                                    <div className="p-4 text-sm text-gray-700 bg-white prose prose-sm max-w-none">
+                                                        <ReactMarkdown>{res.answer}</ReactMarkdown>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
                                     {/* Context & Graph Accordion */}
                                     {msg.type === 'bot' && (msg.context || msg.graph) && (
                                         <ContextAccordion context={msg.context} graph={msg.graph} />
@@ -250,11 +321,76 @@ export default function ChatInterface() {
             </div>
 
             {/* Input Area (Bottom Fixed) */}
-            <div className="absolute bottom-0 left-0 w-full p-6 bg-gradient-to-t from-white via-white to-transparent pt-20 pointer-events-none">
-                {/* pointer-events-none on wrapper to allow clicks pass through to content behind if needed, 
-                    but input needs pointer-events-auto */}
-                <div className="max-w-3xl mx-auto relative bg-gray-100 rounded-full flex items-center px-4 py-3 hover:shadow-md transition-shadow focus-within:bg-white focus-within:shadow-lg focus-within:ring-1 focus-within:ring-gray-200 pointer-events-auto">
+            <div className="absolute bottom-0 left-0 w-full p-6 bg-gradient-to-t from-white via-white to-transparent pt-20">
 
+                {/* Council Member Selector (Visible only in Council Mode) */}
+                {activeSession === 'Nexus Council' && (
+                    <div className="max-w-3xl mx-auto mb-4 animate-in slide-in-from-bottom-2 fade-in">
+                        <div
+                            className="bg-white/90 backdrop-blur-md border border-purple-100 rounded-2xl p-4 shadow-lg ring-1 ring-purple-500/10 cursor-pointer"
+                            onClick={() => setShowCouncilSelector(!showCouncilSelector)}
+                        >
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-amber-600 uppercase tracking-widest flex items-center gap-2">
+                                    <Users className="w-3 h-3 text-purple-600" />
+                                    Aktive Ratsmitglieder
+                                </span>
+                                <span className="text-xs text-gray-400 font-medium">
+                                    {selectedMembers.length} Ausgewählt
+                                    <ChevronDown className={clsx("w-3 h-3 inline ml-1 transition-transform", showCouncilSelector && "rotate-180")} />
+                                </span>
+                            </div>
+
+                            {/* Preview or Expanded Selector */}
+                            {showCouncilSelector ? (
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-3 animate-in fade-in">
+                                    {COUNCIL_MEMBERS_LIST.map((member) => (
+                                        <div
+                                            key={member.id}
+                                            onClick={(e) => { e.stopPropagation(); toggleMember(member.id); }}
+                                            className={clsx(
+                                                "flex items-center gap-2 p-2 rounded-lg border transition-all cursor-pointer select-none",
+                                                selectedMembers.includes(member.id)
+                                                    ? "bg-purple-50 border-purple-300 shadow-sm"
+                                                    : "bg-white border-gray-200 opacity-60 hover:opacity-100"
+                                            )}
+                                        >
+                                            <div className="text-lg">{member.icon}</div>
+                                            <div>
+                                                <div className={clsx("text-xs font-bold", selectedMembers.includes(member.id) ? "text-purple-900" : "text-gray-600")}>
+                                                    {member.name}
+                                                </div>
+                                                <div className="text-[10px] text-gray-400 truncate w-24">
+                                                    {member.role}
+                                                </div>
+                                            </div>
+                                            {selectedMembers.includes(member.id) && <Check className="w-3 h-3 text-purple-600 ml-auto" />}
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                // Minimized view (avatars)
+                                <div className="flex gap-2 overflow-x-auto pb-1 mt-1">
+                                    {selectedMembers.length === 0 ? (
+                                        <span className="text-sm text-gray-400 italic">No members selected. Tap to assemble council.</span>
+                                    ) : (
+                                        selectedMembers.map(mid => {
+                                            const m = COUNCIL_MEMBERS_LIST.find(x => x.id === mid);
+                                            return (
+                                                <div key={mid} className="flex items-center gap-1.5 px-3 py-1 bg-purple-50 rounded-full border border-purple-200">
+                                                    <span className="text-sm">{m?.icon}</span>
+                                                    <span className="text-xs font-medium text-purple-900">{m?.name}</span>
+                                                </div>
+                                            )
+                                        })
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                <div className="max-w-3xl mx-auto relative bg-gray-100 rounded-full flex items-center px-4 py-3 hover:shadow-md transition-shadow focus-within:bg-white focus-within:shadow-lg focus-within:ring-1 focus-within:ring-gray-200">
                     <input
                         type="text"
                         value={query}
@@ -275,7 +411,7 @@ export default function ChatInterface() {
                         )}
                     </div>
                 </div>
-                <div className="text-center mt-3 pointer-events-auto">
+                <div className="text-center mt-3">
                     <p className="text-xs text-gray-400">Nexus may display inaccurate info, including about people, so double-check its responses.</p>
                 </div>
             </div>

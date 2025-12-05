@@ -23,6 +23,12 @@ export interface QueryResponse {
     answer: string;
     context: SearchResult[];
     graph_context: any;
+    council_results?: {
+        member_id: string;
+        role: string;
+        task: string;
+        answer: string;
+    }[];
 }
 
 export interface SearchResult {
