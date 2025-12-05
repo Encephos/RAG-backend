@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { api, QueryResponse, SearchResult } from '../utils/api';
 import ReactMarkdown from 'react-markdown';
-import { Send, Bot, User, ChevronDown, ChevronRight, FileText, Sparkles, Network, Check, Users } from 'lucide-react';
+import { Send, Bot, User, ChevronDown, ChevronRight, FileText, Sparkles, Network, Check, Users, Sprout, FlaskConical, Activity, Scale } from 'lucide-react';
 import { clsx } from 'clsx';
 
 type SessionId = 'Nexus' | 'Nexus Council';
@@ -97,6 +97,20 @@ export default function ChatInterface() {
         }
     }, [history, loading, activeSession]);
 
+    const [stats, setStats] = useState<{ version: string; total_points: number } | null>(null);
+
+    useEffect(() => {
+        const fetchStats = async () => {
+            try {
+                const res = await api.get('/stats');
+                setStats(res.data);
+            } catch (e) {
+                console.error("Failed to fetch stats", e);
+            }
+        };
+        fetchStats();
+    }, []);
+
     const toggleMember = (id: string) => {
         setSelectedMembers(prev =>
             prev.includes(id) ? prev.filter(m => m !== id) : [...prev, id]
@@ -156,16 +170,16 @@ export default function ChatInterface() {
     };
 
     const suggestions = [
-        { title: "Konzepte erklären", subtitle: "Was ist RAG?", icon: "💡" },
-        { title: "Text zusammenfassen", subtitle: "Dokument einfügen", icon: "📝" },
-        { title: "Daten vergleichen", subtitle: "In Tabellenform", icon: "📊" },
-        { title: "Code schreiben", subtitle: "Python Skript", icon: "💻" },
+        { title: "Botanik & Anbau", subtitle: "Optimale Bedingungen für Blütephase", icon: <Sprout className="w-6 h-6 text-green-600" /> },
+        { title: "Chemie & Wirkung", subtitle: "Was ist der Entourage-Effekt?", icon: <FlaskConical className="w-6 h-6 text-purple-600" /> },
+        { title: "Medizinische Daten", subtitle: "Neueste Studien zu CBD & Schmerz", icon: <Activity className="w-6 h-6 text-red-600" /> },
+        { title: "Recht & Regulierung", subtitle: "Aktuelle Grenzwerte im Verkehr", icon: <Scale className="w-6 h-6 text-blue-600" /> },
     ];
 
     return (
         <div className="flex flex-col h-full relative max-w-5xl mx-auto w-full">
-            {/* Header with Dropdown */}
-            <div className="absolute top-0 left-0 p-6 z-20" ref={dropdownRef}>
+            {/* Header with Dropdown and Stats */}
+            <div className="absolute top-0 left-0 right-0 p-6 z-20 flex justify-between items-start" ref={dropdownRef}>
                 <button
                     onClick={() => setIsDropdownOpen(!isDropdownOpen)}
                     className="flex items-center gap-2 text-gray-700 font-semibold cursor-pointer hover:bg-gray-100 p-2 rounded-lg transition-colors group"
@@ -173,6 +187,17 @@ export default function ChatInterface() {
                     <span className="text-xl tracking-tight">{activeSession}</span>
                     <ChevronDown className={clsx("w-4 h-4 text-gray-400 transition-transform duration-200", isDropdownOpen && "rotate-180")} />
                 </button>
+
+                {/* System Stats */}
+                <div className="hidden md:flex flex-col items-end text-right">
+                    <div className="text-[10px] font-mono text-gray-400 uppercase tracking-widest mb-1">Nexus AI v{stats?.version || '0.4.2'}</div>
+                    <div className="flex items-center gap-1.5 bg-white/50 backdrop-blur-sm border border-gray-100 px-2 py-1 rounded-full shadow-sm">
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                        <span className="text-xs font-medium text-gray-600">
+                            {stats ? stats.total_points.toLocaleString() : '...'} Knowledge Points
+                        </span>
+                    </div>
+                </div>
 
                 {isDropdownOpen && (
                     <div className="absolute top-full left-6 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
@@ -207,7 +232,7 @@ export default function ChatInterface() {
                     <div className="flex flex-col h-full items-start justify-center max-w-4xl mx-auto pb-20 fade-in animate-in duration-700">
                         <h1 className="text-6xl font-medium tracking-tight mb-2">
                             <span className="text-gradient-gemini">
-                                {activeSession === 'Nexus' ? 'Hallo, Mensch' : 'Rat Aktiv'}
+                                {activeSession === 'Nexus' ? 'Hallo Stoner,' : 'Nexus Council Aktiv'}
                             </span>
                         </h1>
                         {/* Animated Greeting */}
@@ -425,21 +450,21 @@ function ContextAccordion({ context, graph }: { context?: SearchResult[], graph?
     if ((!context || context.length === 0) && (!graph || Object.keys(graph).length === 0)) return null;
 
     return (
-        <div className="mt-2 relative z-10">
+        <div className="mt-2">
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="flex items-center gap-2 text-xs font-medium text-gray-500 hover:text-blue-600 transition-colors bg-white border border-gray-200 px-3 py-1.5 rounded-full shadow-sm hover:shadow cursor-pointer"
+                className="flex items-center gap-2 text-xs font-medium text-gray-500 hover:text-blue-600 transition-colors bg-white border border-gray-200 px-3 py-1.5 rounded-full shadow-sm hover:shadow cursor-pointer select-none"
             >
                 <Sparkles className="w-3 h-3" />
                 {isOpen ? "Quellen verbergen" : "Quellen anzeigen"}
             </button>
 
             {isOpen && (
-                <div className="mt-4 p-4 bg-gray-50 rounded-2xl border border-gray-200 space-y-4 animate-in slide-in-from-top-2 duration-300">
+                <div className="mt-4 p-4 bg-gray-50 rounded-2xl border border-gray-200 space-y-4 animate-in fade-in slide-in-from-top-1 duration-200">
                     {/* Vector Context */}
                     {context && context.length > 0 && (
                         <div>
-                            <h4 className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase mb-3">
+                            <h4 className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase mb-3 select-none">
                                 <FileText className="w-3 h-3" /> Retrieved Documents
                             </h4>
                             <div className="grid gap-2">
@@ -453,7 +478,7 @@ function ContextAccordion({ context, graph }: { context?: SearchResult[], graph?
                     {/* Graph Context */}
                     {graph && graph.summary && (
                         <div>
-                            <h4 className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase mb-3">
+                            <h4 className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase mb-3 select-none">
                                 <Network className="w-3 h-3" /> Knowledge Graph
                             </h4>
                             <div className="bg-white p-3 rounded-lg border border-gray-200 text-sm text-gray-800">
@@ -471,7 +496,7 @@ function ContextItem({ ctx }: { ctx: SearchResult }) {
     const [expanded, setExpanded] = useState(false);
 
     return (
-        <div className="bg-white p-3 rounded-xl border border-gray-200 hover:border-blue-300 transition-colors shadow-sm relative z-10">
+        <div className="bg-white p-3 rounded-xl border border-gray-200 hover:border-blue-300 transition-colors shadow-sm">
             <div
                 onClick={() => setExpanded(!expanded)}
                 className={clsx(
@@ -484,12 +509,12 @@ function ContextItem({ ctx }: { ctx: SearchResult }) {
 
             <div className="mt-2 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-mono text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full font-medium">
+                    <span className="text-[10px] font-mono text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full font-medium select-none">
                         {ctx.score.toFixed(2)}
                     </span>
                     <button
                         onClick={() => setExpanded(!expanded)}
-                        className="text-[10px] text-gray-400 hover:text-gray-600 font-medium z-20 relative"
+                        className="text-[10px] text-gray-400 hover:text-gray-600 font-medium select-none"
                     >
                         {expanded ? "Weniger anzeigen" : "Mehr anzeigen"}
                     </button>
@@ -500,7 +525,7 @@ function ContextItem({ ctx }: { ctx: SearchResult }) {
                         href={ctx.metadata.source_url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-[10px] text-blue-500 hover:underline truncate max-w-[150px] z-20 relative"
+                        className="text-[10px] text-blue-500 hover:underline truncate max-w-[150px]"
                     >
                         {ctx.metadata?.filename || 'Quelle öffnen'}
                     </a>

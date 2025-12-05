@@ -22,9 +22,9 @@ export default function Home() {
             <div className="p-8 max-w-3xl mx-auto w-full pt-16 animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div className="mb-8 text-center">
                 <h1 className="text-3xl font-medium tracking-tight bg-gradient-to-r from-blue-600 via-purple-600 to-red-500 bg-clip-text text-transparent">
-                  Knowledge Import
+                  Wissens Import
                 </h1>
-                <p className="text-gray-500 mt-2">Add documents or URLs to your knowledge base</p>
+                <p className="text-gray-500 mt-2">Füge Dokumente und URLs zur Wissensbasis hinzu</p>
               </div>
               <IngestForm />
             </div>

@@ -23,8 +23,16 @@ class QdrantService:
             "studies": "studies_data",
             "production": "production_knowledge"
         }
+
+        # Define Entity Collections Map
+        self.entity_collections = {
+            "master": settings.QDRANT_ENTITY_COLLECTION_NAME, # rag_entities
+            "botanical": "botanical_entities",
+            "pharmacological": "pharmacological_entities",
+            "studies": "studies_entities",
+            "production": "production_entities"
+        }
         
-        self.entity_collection_name = settings.QDRANT_ENTITY_COLLECTION_NAME
         self._ensure_collections()
 
     def _ensure_collections(self):
@@ -34,10 +42,10 @@ class QdrantService:
             existing_names = [c.name for c in collections]
             logger.info(f"Existing Qdrant collections: {existing_names}")
             
-            # Ensure all data collections exist
+            # Ensure all data collections exist (Vectors)
             for key, col_name in self.collections.items():
                 if col_name not in existing_names:
-                    logger.info(f"Creating collection: {col_name}")
+                    logger.info(f"Creating vector collection: {col_name}")
                     self.client.create_collection(
                         collection_name=col_name,
                         vectors_config=models.VectorParams(
@@ -46,20 +54,21 @@ class QdrantService:
                         )
                     )
                 else:
-                    logger.info(f"Collection {col_name} already exists.")
+                    logger.info(f"Vector Collection {col_name} already exists.")
                 
-            # Entity Collection (for Knowledge Graph)
-            if self.entity_collection_name not in existing_names:
-                logger.info(f"Creating collection: {self.entity_collection_name}")
-                self.client.create_collection(
-                    collection_name=self.entity_collection_name,
-                    vectors_config=models.VectorParams(
-                        size=384,
-                        distance=models.Distance.COSINE
+            # Ensure all entity collections exist (Graphs)
+            for key, col_name in self.entity_collections.items():
+                if col_name not in existing_names:
+                    logger.info(f"Creating entity collection: {col_name}")
+                    self.client.create_collection(
+                        collection_name=col_name,
+                        vectors_config=models.VectorParams(
+                            size=384,
+                            distance=models.Distance.COSINE
+                        )
                     )
-                )
-            else:
-                logger.info(f"Collection {self.entity_collection_name} already exists.")
+                else:
+                    logger.info(f"Entity Collection {col_name} already exists.")
                 
         except Exception as e:
             logger.error(f"Error ensuring collections: {e}")
@@ -118,10 +127,12 @@ class QdrantService:
 
     # --- Entity / Graph Methods ---
 
-    def upsert_entity(self, entity_id: str, vector: List[float], payload: Dict[str, Any]):
+    def upsert_entity(self, entity_id: str, vector: List[float], payload: Dict[str, Any], collection_name: str = None):
         """Upsert a graph entity."""
+        target_collection = collection_name or settings.QDRANT_ENTITY_COLLECTION_NAME
+        
         self.client.upsert(
-            collection_name=self.entity_collection_name,
+            collection_name=target_collection,
             points=[
                 models.PointStruct(
                     id=entity_id,
@@ -131,29 +142,45 @@ class QdrantService:
             ]
         )
 
-    def search_entities(self, vector: List[float], limit: int = 1, score_threshold: float = 0.0) -> List[Any]:
+    def search_entities(self, vector: List[float], limit: int = 1, score_threshold: float = 0.0, collection_name: str = None) -> List[Any]:
         """Search for similar entities (for resolution or retrieval)."""
+        target_collection = collection_name or settings.QDRANT_ENTITY_COLLECTION_NAME
+        
         return self.client.query_points(
-            collection_name=self.entity_collection_name,
+            collection_name=target_collection,
             query=vector,
             limit=limit,
             score_threshold=score_threshold
         ).points
 
-    def get_entity(self, entity_id: str) -> Optional[Dict[str, Any]]:
+    def get_entity(self, entity_id: str, collection_name: str = None) -> Optional[Dict[str, Any]]:
         """Retrieve entity payload by ID."""
+        target_collection = collection_name or settings.QDRANT_ENTITY_COLLECTION_NAME
+        
         points = self.client.retrieve(
-            collection_name=self.entity_collection_name,
+            collection_name=target_collection,
             ids=[entity_id]
         )
         if points:
             return points[0].payload
         return None
 
-    def update_entity_payload(self, entity_id: str, payload: Dict[str, Any]):
+    def update_entity_payload(self, entity_id: str, payload: Dict[str, Any], collection_name: str = None):
         """Update payload of an existing entity."""
+        target_collection = collection_name or settings.QDRANT_ENTITY_COLLECTION_NAME
+        
         self.client.set_payload(
-            collection_name=self.entity_collection_name,
+            collection_name=target_collection,
             payload=payload,
             points=[entity_id]
         )
+
+    def count_points(self, collection_alias: str = "master") -> int:
+        """Count total points in a collection."""
+        collection_name = self.collections.get(collection_alias, self.collections["master"])
+        try:
+            count_result = self.client.count(collection_name=collection_name)
+            return count_result.count
+        except Exception as e:
+            logger.error(f"Error counting points in {collection_name}: {e}")
+            return 0

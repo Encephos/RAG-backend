@@ -132,6 +132,32 @@ async def ingest_url(
 
     return StreamingResponse(event_generator(), media_type="application/x-ndjson")
 
+@router.post("/ingest/compounds")
+@limiter.limit("5/minute")
+async def ingest_compounds(
+    request: Request,
+    rag_service: RagService = Depends(get_rag_service)
+):
+    """
+    Trigger ingestion of Cannabis Compounds from local XML file.
+    Default path: data/sources/compounds.xml
+    Streams progress updates.
+    """
+    file_path = "data/sources/compounds.xml"
+    path_obj = Path(file_path)
+    
+    if not path_obj.exists():
+        raise HTTPException(status_code=404, detail=f"Compounds file not found at {file_path}")
+
+    async def event_generator():
+        try:
+            async for event in rag_service.ingest_cannabis_compounds_generator(file_path):
+                yield json.dumps(event) + "\n"
+        except Exception as e:
+            yield json.dumps({"step": "error", "message": f"Ingestion failed: {str(e)}"}) + "\n"
+
+    return StreamingResponse(event_generator(), media_type="application/x-ndjson")
+
 from src.services.council_service import CouncilService
 
 def get_council_service():
@@ -179,3 +205,19 @@ async def get_supported_formats(
 ):
     """Get list of supported file formats for upload."""
     return {"formats": doc_service.get_supported_formats()}
+
+@router.get("/stats")
+async def get_system_stats(
+    rag_service: RagService = Depends(get_rag_service)
+):
+    """Get system statistics."""
+    total_points = rag_service.qdrant_service.count_points("master")
+    # You could also sum up other collections if they are separate
+    
+    return {
+        "version": "0.4.2", # Nexus AI Beta
+        "total_points": total_points,
+        "collections": {
+            "master": total_points
+        }
+    }

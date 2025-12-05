@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Nexus AI",
-  description: "Enterprise Knowledge Assistant",
+  description: "Cannabis RAG System for Knowledge Retrieval and Question Answering",
 };
 
 export default function RootLayout({

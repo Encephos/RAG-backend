@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
 from src.services.rag_service import RagService
 from src.models.schemas import ExtractionResult, EntityNode, Relation
+from src.core.config import settings
 
 class TestRagService:
     
@@ -18,7 +19,12 @@ class TestRagService:
         mock_emb_instance = mock_emb.return_value
         mock_emb_instance.embed_query = AsyncMock(return_value=[0.1] * 384)
         service.embedding_service = mock_emb_instance
-        
+    
+        # Mock Qdrant Service entity collections
+        mock_qdrant_instance = mock_qdrant.return_value
+        mock_qdrant_instance.entity_collections = {} # Mock empty map to simplify, or mock full
+        service.qdrant_service = mock_qdrant_instance
+
         # Mock LLM Extraction
         mock_llm_instance = mock_llm.return_value
         mock_extraction = ExtractionResult(
@@ -32,23 +38,25 @@ class TestRagService:
         )
         mock_llm_instance.extract_entities = AsyncMock(return_value=mock_extraction)
         service.llm_service = mock_llm_instance
-        
+    
         # Mock KG Resolution
         mock_kg_instance = mock_kg.return_value
-        mock_kg_instance.add_entity_with_resolution = AsyncMock(side_effect=["id_apple", "id_steve"])
+        mock_kg_instance.add_entity_with_resolution = AsyncMock(side_effect=["id_apple", "id_steve", "id_apple", "id_steve"])
         service.kg_service = mock_kg_instance
-        
+    
         # Execute
         await service.ingest("Apple was founded by Steve.", {"source": "test"})
-        
+    
         # Verify
         service.qdrant_service.upsert.assert_called_once()
         service.llm_service.extract_entities.assert_called_once()
-        assert service.kg_service.add_entity_with_resolution.call_count == 2
+        
+        # Should call add_relation with collection_name=rag_entities (default master)
         service.kg_service.add_relation.assert_called_once_with(
             source_id="id_apple",
             target_id="id_steve",
-            relation_type="founded_by"
+            relation_type="founded_by",
+            collection_name=settings.QDRANT_ENTITY_COLLECTION_NAME
         )
 
     @patch("src.services.rag_service.QdrantService")

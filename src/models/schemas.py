@@ -59,6 +59,7 @@ class UrlIngestRequest(BaseModel):
     recursive: bool = False
     max_pages: int = 10
     max_depth: int = 2
+    collections: Optional[List[str]] = None
 
 class UrlIngestResponse(BaseModel):
     status: str

@@ -34,4 +34,12 @@ jest.mock('lucide-react', () => ({
     Check: () => React.createElement('svg', { 'data-testid': 'icon-check' }),
     ChevronDown: () => React.createElement('svg', { 'data-testid': 'icon-chevron-down' }),
     Search: () => React.createElement('svg', { 'data-testid': 'icon-search' }),
+    X: () => React.createElement('svg', { 'data-testid': 'icon-x' }),
+    Play: () => React.createElement('svg', { 'data-testid': 'icon-play' }),
+    Clock: () => React.createElement('svg', { 'data-testid': 'icon-clock' }),
+    Database: () => React.createElement('svg', { 'data-testid': 'icon-database' }),
+    Sprout: () => React.createElement('svg', { 'data-testid': 'icon-sprout' }),
+    FlaskConical: () => React.createElement('svg', { 'data-testid': 'icon-flask' }),
+    Activity: () => React.createElement('svg', { 'data-testid': 'icon-activity' }),
+    Scale: () => React.createElement('svg', { 'data-testid': 'icon-scale' }),
 }))

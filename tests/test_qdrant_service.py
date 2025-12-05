@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 from src.services.qdrant_service import QdrantService
+from src.core.config import settings
 from qdrant_client.http import models
 
 class TestQdrantService:
@@ -14,8 +15,8 @@ class TestQdrantService:
         
         service = QdrantService()
         
-        # Should call create_collection twice (docs + entities)
-        assert mock_client.create_collection.call_count == 2
+        # Should call create_collection 10 times (5 data + 5 entity collections)
+        assert mock_client.create_collection.call_count == 10
         
     @patch("src.services.qdrant_service.QdrantClient")
     def test_upsert_document(self, mock_client_class):
@@ -31,7 +32,8 @@ class TestQdrantService:
         
         mock_client.upsert.assert_called_once()
         call_args = mock_client.upsert.call_args
-        assert call_args.kwargs["collection_name"] == service.collection_name
+        # Should default to master collection name
+        assert call_args.kwargs["collection_name"] == service.collections["master"]
         assert len(call_args.kwargs["points"]) == 1
         
     @patch("src.services.qdrant_service.QdrantClient")
@@ -68,7 +70,8 @@ class TestQdrantService:
         
         mock_client.upsert.assert_called()
         call_args = mock_client.upsert.call_args
-        assert call_args.kwargs["collection_name"] == service.entity_collection_name
+        # Should default to master entity collection name
+        assert call_args.kwargs["collection_name"] == settings.QDRANT_ENTITY_COLLECTION_NAME
         
     @patch("src.services.qdrant_service.QdrantClient")
     def test_search_entities(self, mock_client_class):
@@ -80,4 +83,4 @@ class TestQdrantService:
         
         mock_client.query_points.assert_called()
         call_args = mock_client.query_points.call_args
-        assert call_args.kwargs["collection_name"] == service.entity_collection_name
+        assert call_args.kwargs["collection_name"] == settings.QDRANT_ENTITY_COLLECTION_NAME
