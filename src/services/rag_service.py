@@ -26,19 +26,31 @@ class RagService:
         """
         await self.ingest_document(text, [{"text": text, "metadata": metadata}])
 
-    async def ingest_document(self, full_text: str, chunks: List[Any]):
+    async def ingest_document(self, full_text: str, chunks: List[Any], target_collections: List[str] = None):
         """
         Legacy ingestion method. Consumes the generator.
         """
-        async for _ in self.ingest_document_generator(full_text, chunks):
+        async for _ in self.ingest_document_generator(full_text, chunks, target_collections):
             pass
 
-    async def ingest_document_generator(self, full_text: str, chunks: List[Any]):
+    async def ingest_document_generator(self, full_text: str, chunks: List[Any], target_collections: List[str] = None):
         """
         Generator that yields progress updates during ingestion.
         Yields: Dict[str, Any] with keys 'step', 'message', 'progress'
         """
         logger.info(f"Starting document ingestion. Size: {len(full_text)} chars, Chunks: {len(chunks)}")
+        
+        # Ensure target_collections is a list and contains 'master'
+        if not target_collections:
+            target_collections = []
+        
+        # Normalize to lower case just in case
+        target_collections = [t.lower() for t in target_collections]
+        
+        if "master" not in target_collections:
+            target_collections.append("master")
+            
+        logger.info(f"Ingesting into collections: {target_collections}")
         
         yield {"step": "start", "message": "Starting ingestion...", "progress": 0.05}
         
@@ -50,13 +62,16 @@ class RagService:
             c_meta = chunk.metadata if hasattr(chunk, 'metadata') else chunk["metadata"]
             
             vector = await self.embedding_service.embed_query(c_text)
-            self.qdrant_service.upsert(c_text, vector, c_meta)
+            
+            # UPSERT to ALL selected collections
+            for col in target_collections:
+                self.qdrant_service.upsert(c_text, vector, c_meta, collection_alias=col)
             
             if i % 5 == 0 or i == total_chunks - 1:
                 progress = 0.05 + (0.25 * ((i + 1) / total_chunks)) # Max 30% for vector indexing
                 yield {"step": "indexing", "message": f"Indexing chunk {i+1}/{total_chunks}...", "progress": progress}
                 
-        logger.debug(f"Upserted {total_chunks} chunks to Qdrant.")
+        logger.debug(f"Upserted {total_chunks} chunks to Qdrant collections: {target_collections}.")
         yield {"step": "indexing_complete", "message": "Vector indexing complete", "progress": 0.30}
 
         # 2. Knowledge Graph Construction

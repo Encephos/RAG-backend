@@ -2,29 +2,52 @@
 @plugin "@tailwindcss/typography";
 
 :root {
-  --background: #0f172a;
-  --foreground: #f8fafc;
-  --card-bg: rgba(30, 41, 59, 0.7);
-  --card-border: rgba(148, 163, 184, 0.1);
-  --primary: #8b5cf6;
-  --primary-hover: #7c3aed;
+  --background: #ffffff;
+  --foreground: #1f1f1f;
+
+  --card-bg: #f3f4f6;
+  /* Gray-100 equivalent */
+  --card-border: transparent;
+
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+
+  --sidebar-bg: #f9fafb;
+  /* Gray-50 */
+}
+
+@media (prefers-color-scheme: dark) {
+  /* Optional: Force light mode based on request, or keep dark mode override? 
+     User specifically asked to match the screenshot which is Light. 
+     I will prioritize Light Mode by default. */
 }
 
 body {
-  background: radial-gradient(circle at top left, #1e1b4b, #0f172a);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), sans-serif;
-  min-height: 100vh;
+  background: var(--background);
+  font-family: 'Inter', system-ui, sans-serif;
 }
 
-/* Glassmorphism Utilities */
-.glass-panel {
-  background: var(--card-bg);
-  backdrop-filter: blur(12px);
-  border: 1px solid var(--card-border);
+/* Gemini Gradient Text */
+.text-gradient-gemini {
+  background: linear-gradient(74deg, #4285F4 0%, #9B72CB 9%, #D96570 20%, #D96570 24%, #9B72CB 35%, #4285F4 44%, #9B72CB 50%, #D96570 56%, #1f1f1f 75%);
+  background-size: 400% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  background-position: 100% 0;
+  /* Animating this looks cool but maybe distracting, static for now matches screenshot roughly */
 }
 
-/* Custom Scrollbar */
+/* Clean Panel (instead of glass) */
+.gemini-card {
+  background: #f0f4f9;
+  /* The subtle blue-ish gray of Gemini cards */
+  border-radius: 12px;
+  border: none;
+}
+
+/* Scrollbar clean */
 ::-webkit-scrollbar {
   width: 8px;
 }
@@ -34,10 +57,10 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.2);
+  background: #e5e7eb;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.4);
+  background: #d1d5db;
 }

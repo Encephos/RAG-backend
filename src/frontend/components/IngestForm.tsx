@@ -17,6 +17,25 @@ export default function IngestForm() {
     const [recursive, setRecursive] = useState(false);
     const [file, setFile] = useState<File | null>(null);
 
+    // Collections state
+    const [selectedCollections, setSelectedCollections] = useState<string[]>([]);
+
+
+    const toggleCollection = (id: string) => {
+        if (selectedCollections.includes(id)) {
+            setSelectedCollections(prev => prev.filter(c => c !== id));
+        } else {
+            setSelectedCollections(prev => [...prev, id]);
+        }
+    };
+
+    const COLLECTIONS = [
+        { id: 'botanical', label: 'Botanisches Wissen' },
+        { id: 'pharmacological', label: 'Pharmakologisches Wissen' },
+        { id: 'studies', label: 'Daten und Studien' },
+        { id: 'production', label: 'Produktionswissen' },
+    ];
+
     const handleIngest = async () => {
         setLoading(true);
         setMessage(null);
@@ -32,18 +51,35 @@ export default function IngestForm() {
                 'X-API-Key': API_KEY
             };
 
+            const collectionsPayload = selectedCollections.length > 0 ? selectedCollections : [];
+
             if (activeTab === 'text') {
                 endpoint = '/ingest';
-                body = JSON.stringify({ text, metadata: { source: 'manual' } });
+                body = JSON.stringify({
+                    text,
+                    metadata: { source: 'manual' },
+                    collections: collectionsPayload
+                });
                 headers['Content-Type'] = 'application/json';
             } else if (activeTab === 'url') {
                 endpoint = '/ingest/url';
-                body = JSON.stringify({ url, recursive });
+                body = JSON.stringify({
+                    url,
+                    recursive,
+                    collections: collectionsPayload
+                });
                 headers['Content-Type'] = 'application/json';
             } else if (activeTab === 'file' && file) {
                 endpoint = '/ingest/file';
                 const formData = new FormData();
                 formData.append('file', file);
+
+                // For list of strings in FormData, often comma-seperated is easiest if backend expects it
+                // Or append same key multiple times. Our backend route logic splits comma-separated string `collections`.
+                if (collectionsPayload.length > 0) {
+                    formData.append('collections', collectionsPayload.join(','));
+                }
+
                 body = formData;
                 // Do NOT set Content-Type for FormData, browser does it with boundary
             }
@@ -88,6 +124,7 @@ export default function IngestForm() {
                             setText('');
                             setUrl('');
                             setFile(null);
+                            setSelectedCollections([]);
                         }
                     } catch (e: any) {
                         console.error("Error parsing stream:", e);
@@ -106,25 +143,25 @@ export default function IngestForm() {
     };
 
     return (
-        <div className="glass-panel p-6 rounded-2xl shadow-lg shadow-black/10">
-            <h2 className="text-xl font-semibold mb-6 flex items-center gap-3 text-gray-200">
-                <div className="p-2 bg-violet-600/20 rounded-lg border border-violet-500/30">
-                    <Upload className="w-5 h-5 text-violet-400" />
+        <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100">
+            <h2 className="text-2xl font-bold mb-8 text-gray-800 flex items-center gap-3">
+                <div className="p-2 bg-blue-100 rounded-lg border border-blue-200">
+                    <Upload className="w-5 h-5 text-blue-600" />
                 </div>
                 Ingest Content
             </h2>
 
             {/* Tabs */}
-            <div className="flex gap-2 mb-6 p-1 bg-slate-900/50 rounded-xl border border-white/5">
+            <div className="flex gap-2 mb-8 p-1 bg-gray-100 rounded-2xl w-fit">
                 {['text', 'file', 'url'].map((tab) => (
                     <button
                         key={tab}
                         onClick={() => setActiveTab(tab as any)}
                         className={clsx(
-                            'flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2',
+                            'px-6 py-2.5 rounded-xl text-sm font-medium transition-all flex items-center gap-2',
                             activeTab === tab
-                                ? 'bg-violet-600 text-white shadow-lg shadow-violet-900/20'
-                                : 'text-gray-400 hover:text-gray-200 hover:bg-white/5'
+                                ? 'bg-white text-gray-900 shadow-sm'
+                                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200/50'
                         )}
                     >
                         {tab === 'text' && <FileText className="w-4 h-4" />}
@@ -136,20 +173,20 @@ export default function IngestForm() {
             </div>
 
             {/* Content */}
-            <div className="space-y-5">
+            <div className="space-y-6">
                 {activeTab === 'text' && (
                     <div className="group">
                         <textarea
                             value={text}
                             onChange={(e) => setText(e.target.value)}
                             placeholder="Paste text content here..."
-                            className="w-full h-40 p-4 rounded-xl bg-slate-900/50 border border-slate-700 text-gray-200 placeholder-gray-600 outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50 transition-all resize-none"
+                            className="w-full h-40 p-4 rounded-xl bg-gray-50 border border-gray-200 text-gray-900 placeholder-gray-400 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all resize-none"
                         />
                     </div>
                 )}
 
                 {activeTab === 'file' && (
-                    <div className="border-2 border-dashed border-slate-700 hover:border-violet-500/50 rounded-xl p-10 text-center transition-all bg-slate-900/20 group cursor-pointer hover:bg-slate-900/40">
+                    <div className="border-2 border-dashed border-gray-200 hover:border-blue-400 rounded-2xl p-12 text-center transition-all bg-gray-50/50 hover:bg-blue-50/10 group cursor-pointer">
                         <input
                             type="file"
                             onChange={(e) => setFile(e.target.files?.[0] || null)}
@@ -158,14 +195,14 @@ export default function IngestForm() {
                             accept=".pdf,.docx,.txt,.md,.html"
                         />
                         <label htmlFor="file-upload" className="cursor-pointer flex flex-col items-center gap-4">
-                            <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center group-hover:scale-110 transition-transform duration-300 border border-slate-700 group-hover:border-violet-500/30">
-                                <Upload className="w-8 h-8 text-gray-400 group-hover:text-violet-400 transition-colors" />
+                            <div className="w-16 h-16 rounded-full bg-white flex items-center justify-center shadow-sm border border-gray-100 group-hover:scale-110 transition-transform duration-300">
+                                <Upload className="w-6 h-6 text-gray-400 group-hover:text-blue-500 transition-colors" />
                             </div>
                             <div className="space-y-1">
-                                <span className="block text-sm font-medium text-gray-300">
+                                <span className="block text-sm font-medium text-gray-700">
                                     {file ? file.name : 'Click to upload'}
                                 </span>
-                                <span className="block text-xs text-gray-500">
+                                <span className="block text-xs text-gray-400">
                                     PDF, DOCX, TXT, MD
                                 </span>
                             </div>
@@ -180,53 +217,89 @@ export default function IngestForm() {
                             value={url}
                             onChange={(e) => setUrl(e.target.value)}
                             placeholder="https://example.com"
-                            className="w-full p-4 rounded-xl bg-slate-900/50 border border-slate-700 text-gray-200 placeholder-gray-600 outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500/50 transition-all"
+                            className="w-full p-4 rounded-xl bg-gray-50 border border-gray-200 text-gray-900 placeholder-gray-400 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                         />
-                        <div className="flex items-center gap-2 p-3 rounded-lg bg-slate-900/30 border border-slate-800">
+                        <div className="flex items-center gap-2 p-3 rounded-lg bg-gray-50/50 border border-gray-100">
                             <input
                                 type="checkbox"
                                 checked={recursive}
                                 onChange={(e) => setRecursive(e.target.checked)}
-                                className="w-4 h-4 rounded border-slate-600 text-violet-600 focus:ring-violet-500/50 bg-slate-800"
+                                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                                 id="recursive"
                             />
-                            <label htmlFor="recursive" className="text-sm text-gray-400 cursor-pointer select-none">
+                            <label htmlFor="recursive" className="text-sm text-gray-600 cursor-pointer select-none">
                                 Recursive Crawling (Max 5 pages)
                             </label>
                         </div>
                     </div>
                 )}
 
+                {/* Collection Selector */}
+                <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
+                    <label className="block text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wider text-xs">
+                        Target RAG Collections (Master + Selection)
+                    </label>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {COLLECTIONS.map((col) => (
+                            <div
+                                key={col.id}
+                                onClick={() => toggleCollection(col.id)}
+                                className={clsx(
+                                    "flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all select-none",
+                                    selectedCollections.includes(col.id)
+                                        ? "bg-blue-50 border-blue-200 shadow-sm"
+                                        : "bg-white border-gray-200 hover:border-gray-300"
+                                )}
+                            >
+                                <div className={clsx(
+                                    "w-5 h-5 rounded border flex items-center justify-center transition-colors",
+                                    selectedCollections.includes(col.id)
+                                        ? "bg-blue-600 border-blue-600"
+                                        : "border-gray-300 bg-white"
+                                )}>
+                                    {selectedCollections.includes(col.id) && <CheckCircle className="w-3.5 h-3.5 text-white" />}
+                                </div>
+                                <span className={clsx(
+                                    "text-sm font-medium",
+                                    selectedCollections.includes(col.id) ? "text-blue-900" : "text-gray-600"
+                                )}>
+                                    {col.label}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
                 {/* Progress Bar */}
                 {progress && (
                     <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
-                        <div className="flex justify-between text-xs text-gray-400 font-medium">
+                        <div className="flex justify-between text-xs text-gray-500 font-medium">
                             <span className="flex items-center gap-2">
-                                <RefreshCw className="w-3 h-3 animate-spin text-violet-400" />
+                                <RefreshCw className="w-3 h-3 animate-spin text-blue-500" />
                                 {progress.message}
                             </span>
                             <span>{Math.round(progress.percent)}%</span>
                         </div>
-                        <div className="h-2 bg-slate-800 rounded-full overflow-hidden border border-slate-700/50">
+                        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
                             <div
-                                className="h-full bg-gradient-to-r from-violet-600 to-indigo-500 transition-all duration-500 ease-out relative"
+                                className="h-full bg-gradient-to-r from-blue-500 via-purple-500 to-red-500 transition-all duration-500 ease-out"
                                 style={{ width: `${progress.percent}%` }}
-                            >
-                                <div className="absolute inset-0 bg-white/20 animate-pulse"></div>
-                            </div>
+                            ></div>
                         </div>
                     </div>
                 )}
 
                 {/* Action Button */}
                 {!progress && (
-                    <button
-                        onClick={handleIngest}
-                        disabled={loading || (activeTab === 'text' && !text) || (activeTab === 'url' && !url) || (activeTab === 'file' && !file)}
-                        className="w-full py-3 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white rounded-xl font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-violet-900/20 hover:shadow-violet-900/40 transform active:scale-[0.99]"
-                    >
-                        Ingest Content
-                    </button>
+                    <div className="flex justify-end">
+                        <button
+                            onClick={handleIngest}
+                            disabled={loading || (activeTab === 'text' && !text) || (activeTab === 'url' && !url) || (activeTab === 'file' && !file)}
+                            className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full font-medium transition-all shadow-md shadow-blue-600/20 hover:shadow-lg hover:shadow-blue-600/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
+                        >
+                            Ingest Content
+                        </button>
+                    </div>
                 )}
 
                 {/* Feedback Message */}
@@ -234,8 +307,8 @@ export default function IngestForm() {
                     <div className={clsx(
                         'p-4 rounded-xl flex items-center gap-3 text-sm animate-in fade-in slide-in-from-bottom-2',
                         message.type === 'success'
-                            ? 'bg-emerald-900/20 text-emerald-300 border border-emerald-500/20'
-                            : 'bg-red-900/20 text-red-300 border border-red-500/20'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                            : 'bg-red-50 text-red-700 border border-red-100'
                     )}>
                         {message.type === 'success' ? <CheckCircle className="w-5 h-5 flex-shrink-0" /> : <AlertCircle className="w-5 h-5 flex-shrink-0" />}
                         <p className="font-medium">{message.text}</p>

@@ -4,6 +4,7 @@ from typing import List, Dict, Any, Optional
 class IngestRequest(BaseModel):
     text: str
     metadata: Optional[Dict[str, Any]] = None
+    collections: Optional[List[str]] = None
 
 class IngestResponse(BaseModel):
     status: str

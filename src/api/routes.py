@@ -42,11 +42,14 @@ async def ingest_document(
 from fastapi.responses import StreamingResponse
 import json
 
+from fastapi import Form
+
 @router.post("/ingest/file")
 @limiter.limit("20/minute")
 async def ingest_file(
     request: Request,
     file: UploadFile = File(...),
+    collections: Optional[str] = Form(None),
     rag_service: RagService = Depends(get_rag_service),
     document_service: DocumentService = Depends(get_document_service)
 ):
@@ -55,9 +58,15 @@ async def ingest_file(
     filename = file.filename or "unknown"
     file_path = source_dir / filename
 
+    # Parse Collections
+    target_cols = []
+    if collections:
+        # Handle comma-separated string
+        target_cols = [c.strip() for c in collections.split(",") if c.strip()]
+
     async def event_generator():
         try:
-            yield json.dumps({"step": "upload", "message": "Uploading and saving file...", "progress": 0.0}) + "\n"
+            yield json.dumps({"step": "upload", "message": f"Uploading and saving file... (Collections: {target_cols})", "progress": 0.0}) + "\n"
             
             content = await file.read()
             with open(file_path, "wb") as f:
@@ -72,7 +81,7 @@ async def ingest_file(
             chunks = document_service.chunk_text(text, parse_metadata)
             full_text = "\n\n".join([c.text for c in chunks])
             
-            async for event in rag_service.ingest_document_generator(full_text, chunks):
+            async for event in rag_service.ingest_document_generator(full_text, chunks, target_collections=target_cols):
                 yield json.dumps(event) + "\n"
                 
         except Exception as e:
@@ -91,7 +100,8 @@ async def ingest_url(
 ):
     async def event_generator():
         try:
-            yield json.dumps({"step": "scraping", "message": f"Crawling {url_request.url}...", "progress": 0.0}) + "\n"
+            target_cols = url_request.collections or []
+            yield json.dumps({"step": "scraping", "message": f"Crawling {url_request.url}... (Collections: {target_cols})", "progress": 0.0}) + "\n"
             
             max_pages = 5 if url_request.recursive else 1
             scraped_data = await scraper_service.crawl_domain(url_request.url, max_pages=max_pages)
@@ -114,7 +124,7 @@ async def ingest_url(
             
             full_text = "\n\n---PAGE BREAK---\n\n".join(combined_text)
             
-            async for event in rag_service.ingest_document_generator(full_text, all_chunks):
+            async for event in rag_service.ingest_document_generator(full_text, all_chunks, target_collections=target_cols):
                 yield json.dumps(event) + "\n"
                 
         except Exception as e:

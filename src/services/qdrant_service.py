@@ -13,7 +13,17 @@ class QdrantService:
             host=settings.QDRANT_HOST,
             port=settings.QDRANT_PORT
         )
-        self.collection_name = settings.QDRANT_COLLECTION_NAME
+        
+        # Define Collections Map (ID -> Name)
+        # Using simple names for Qdrant, mapped from frontend IDs
+        self.collections = {
+            "master": "master_collection",
+            "botanical": "botanical_knowledge",
+            "pharmacological": "pharmacological_knowledge",
+            "studies": "studies_data",
+            "production": "production_knowledge"
+        }
+        
         self.entity_collection_name = settings.QDRANT_ENTITY_COLLECTION_NAME
         self._ensure_collections()
 
@@ -24,18 +34,19 @@ class QdrantService:
             existing_names = [c.name for c in collections]
             logger.info(f"Existing Qdrant collections: {existing_names}")
             
-            # Document Collection
-            if self.collection_name not in existing_names:
-                logger.info(f"Creating collection: {self.collection_name}")
-                self.client.create_collection(
-                    collection_name=self.collection_name,
-                    vectors_config=models.VectorParams(
-                        size=384,
-                        distance=models.Distance.COSINE
+            # Ensure all data collections exist
+            for key, col_name in self.collections.items():
+                if col_name not in existing_names:
+                    logger.info(f"Creating collection: {col_name}")
+                    self.client.create_collection(
+                        collection_name=col_name,
+                        vectors_config=models.VectorParams(
+                            size=384,
+                            distance=models.Distance.COSINE
+                        )
                     )
-                )
-            else:
-                logger.info(f"Collection {self.collection_name} already exists.")
+                else:
+                    logger.info(f"Collection {col_name} already exists.")
                 
             # Entity Collection (for Knowledge Graph)
             if self.entity_collection_name not in existing_names:
@@ -53,19 +64,25 @@ class QdrantService:
         except Exception as e:
             logger.error(f"Error ensuring collections: {e}")
 
-    def upsert(self, text: str, vector: List[float], metadata: Dict[str, Any] = None):
-        """Upsert a single document chunk."""
+    def upsert(self, text: str, vector: List[float], metadata: Dict[str, Any] = None, collection_alias: str = "master"):
+        """
+        Upsert a single document chunk.
+        collection_alias: One of 'master', 'botanical', 'pharmacological', etc.
+        """
         if metadata is None:
             metadata = {}
         
         metadata["text"] = text
+        
+        # Resolve actual collection name
+        collection_name = self.collections.get(collection_alias, self.collections["master"])
         
         # Generate deterministic ID based on text content to prevent duplicates
         doc_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, text))
         
         try:
             self.client.upsert(
-                collection_name=self.collection_name,
+                collection_name=collection_name,
                 points=[
                     models.PointStruct(
                         id=doc_id,
@@ -75,27 +92,17 @@ class QdrantService:
                 ]
             )
         except Exception as e:
-            if "Not found" in str(e) or "doesn't exist" in str(e):
-                logger.warning(f"Collection not found during upsert. Re-creating...")
-                self._ensure_collections()
-                # Retry once
-                self.client.upsert(
-                    collection_name=self.collection_name,
-                    points=[
-                        models.PointStruct(
-                            id=doc_id,
-                            vector=vector,
-                            payload=metadata
-                        )
-                    ]
-                )
-            else:
-                raise e
+            # Simple retry logic only for master as it is critical, or just log error
+            logger.error(f"Error upserting to {collection_name}: {e}")
+            raise e
 
-    def search(self, vector: List[float], limit: int = 5) -> List[Dict[str, Any]]:
-        """Search for similar document chunks."""
+    def search(self, vector: List[float], limit: int = 5, collection_alias: str = "master") -> List[Dict[str, Any]]:
+        """Search for similar document chunks in a specific collection."""
+        
+        collection_name = self.collections.get(collection_alias, self.collections["master"])
+        
         results = self.client.query_points(
-            collection_name=self.collection_name,
+            collection_name=collection_name,
             query=vector,
             limit=limit
         ).points
