@@ -280,11 +280,11 @@ export default function ChatInterface() {
                                 )}
 
                                 <div className={clsx(
-                                    'flex-1 space-y-2',
+                                    'flex-1 space-y-2 min-w-0 w-full overflow-hidden',
                                     msg.type === 'user' ? 'text-right order-1' : ''
                                 )}>
                                     <div className={clsx(
-                                        "prose prose-lg max-w-none text-gray-800 prose-headings:font-medium prose-p:leading-relaxed prose-pre:bg-gray-900 prose-pre:rounded-xl",
+                                        "prose prose-lg max-w-none text-gray-800 prose-headings:font-medium prose-p:leading-relaxed prose-pre:bg-gray-900 prose-pre:rounded-xl min-w-0",
                                         msg.type === 'user' && "bg-gray-100 inline-block px-6 py-4 rounded-[2rem] rounded-tr-md text-left"
                                     )}>
                                         <ReactMarkdown>{msg.content}</ReactMarkdown>
@@ -369,7 +369,7 @@ export default function ChatInterface() {
             </div>
 
             {/* Input Area (Bottom Fixed) */}
-            <div className="absolute bottom-0 left-0 w-full p-6 bg-gradient-to-t from-white via-white to-transparent pt-20">
+            <div className="absolute bottom-0 left-0 w-full p-6 bg-gradient-to-t from-white via-white to-transparent pt-20 z-30">
 
                 {/* Council Member Selector (Visible only in Council Mode) */}
                 {activeSession === 'Nexus Council' && (
@@ -473,17 +473,17 @@ function ContextAccordion({ context, graph }: { context?: SearchResult[], graph?
     if ((!context || context.length === 0) && (!graph || Object.keys(graph).length === 0)) return null;
 
     return (
-        <div className="mt-2">
+        <div className="mt-4 relative z-10">
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="flex items-center gap-2 text-xs font-medium text-gray-500 hover:text-blue-600 transition-colors bg-white border border-gray-200 px-3 py-1.5 rounded-full shadow-sm hover:shadow cursor-pointer select-none"
+                className="flex items-center gap-2 text-xs font-medium text-gray-500 hover:text-blue-600 transition-colors bg-white border border-gray-200 px-3 py-1.5 rounded-full shadow-sm hover:shadow cursor-pointer select-none active:scale-95 transition-transform"
             >
                 <Sparkles className="w-3 h-3" />
                 {isOpen ? "Quellen verbergen" : "Quellen anzeigen"}
             </button>
 
             {isOpen && (
-                <div className="mt-4 p-4 bg-gray-50 rounded-2xl border border-gray-200 space-y-4 animate-in fade-in slide-in-from-top-1 duration-200">
+                <div className="mt-4 p-4 pr-6 bg-gray-50 rounded-2xl border border-gray-200 space-y-4 animate-in fade-in slide-in-from-top-1 duration-200 w-full box-border overflow-hidden">
                     {/* Vector Context */}
                     {context && context.length > 0 && (
                         <div>
@@ -519,11 +519,11 @@ function ContextItem({ ctx }: { ctx: SearchResult }) {
     const [expanded, setExpanded] = useState(false);
 
     return (
-        <div className="bg-white p-3 rounded-xl border border-gray-200 hover:border-blue-300 transition-colors shadow-sm">
+        <div className="bg-white p-3 rounded-xl border border-gray-200 hover:border-blue-300 transition-colors shadow-sm min-w-0 max-w-full">
             <div
                 onClick={() => setExpanded(!expanded)}
                 className={clsx(
-                    "text-sm text-gray-600 cursor-pointer font-serif leading-relaxed",
+                    "text-sm text-gray-600 cursor-pointer font-serif leading-relaxed break-all overflow-hidden",
                     !expanded && "line-clamp-2"
                 )}
             >

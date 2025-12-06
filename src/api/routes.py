@@ -4,10 +4,11 @@ from pathlib import Path
 from src.services.rag_service import RagService
 from src.services.document_service import DocumentService
 from src.services.scraper_service import ScraperService
+from src.services.academic_scraper import AcademicSourceScraper
 from src.models.schemas import (
     IngestRequest, IngestResponse, 
     QueryRequest, QueryResponse,
-    UrlIngestRequest
+    UrlIngestRequest, AcademicIngestRequest
 )
 from src.core.limiter import limiter
 
@@ -21,6 +22,9 @@ def get_document_service():
 
 def get_scraper_service():
     return ScraperService()
+
+def get_academic_scraper():
+    return AcademicSourceScraper()
 
 @router.post("/ingest", response_model=IngestResponse)
 @limiter.limit("50/minute")
@@ -155,6 +159,108 @@ async def ingest_compounds(
                 yield json.dumps(event) + "\n"
         except Exception as e:
             yield json.dumps({"step": "error", "message": f"Ingestion failed: {str(e)}"}) + "\n"
+
+    return StreamingResponse(event_generator(), media_type="application/x-ndjson")
+
+@router.post("/ingest/academic")
+@limiter.limit("5/minute")
+async def ingest_academic(
+    request: Request,
+    ingest_request: AcademicIngestRequest,
+    rag_service: RagService = Depends(get_rag_service),
+    academic_scraper: AcademicSourceScraper = Depends(get_academic_scraper),
+    scraper_service: ScraperService = Depends(get_scraper_service),
+    document_service: DocumentService = Depends(get_document_service)
+):
+    async def event_generator():
+        try:
+            target_cols = ingest_request.collections or []
+            yield json.dumps({"step": "search", "message": f"Searching for academic papers on '{ingest_request.query}'...", "progress": 0.0}) + "\n"
+            
+            candidates = academic_scraper.search_sources(
+                query=ingest_request.query, 
+                limit=ingest_request.limit, 
+                category=ingest_request.category
+            )
+            
+            yield json.dumps({"step": "processing", "message": f"Found {len(candidates)} candidates. Processing...", "progress": 0.1}) + "\n"
+            
+            processed_count = 0
+            
+            for doc in candidates:
+                yield json.dumps({"step": "ingest", "message": f"Processing: {doc.get('title', 'Unknown')}", "progress": 0.1 + (0.8 * (processed_count / len(candidates)))}) + "\n"
+                
+                try:
+                    full_text = ""
+                    # Strategy A: If valid open access PDF/URL, try to scrape/download
+                    if doc.get("url") and (doc.get("metadata", {}).get("is_open_access") or doc["url"].endswith(".pdf")):
+                        
+                        # 1. Try PDF Download
+                        if doc["url"].endswith(".pdf"):
+                            yield json.dumps({"step": "download", "message": f"Downloading PDF: {doc.get('title')}...", "progress": 0.1}) + "\n"
+                            
+                            # Use scraper service to download (non-blocking)
+                            from starlette.concurrency import run_in_threadpool
+                            pdf_bytes = await run_in_threadpool(scraper_service.download_file, doc["url"])
+                            
+                            if pdf_bytes:
+                                yield json.dumps({"step": "parsing", "message": "Parsing PDF content...", "progress": 0.15}) + "\n"
+                                # Reuse DocumentService to parse the bytes
+                                chunks_info, pdf_meta = await document_service.process_uploaded_file(pdf_bytes, doc.get("title", "downloaded.pdf") + ".pdf")
+                                full_text = "\n\n".join([c.text for c in chunks_info])
+                            else:
+                                 yield json.dumps({"step": "warning", "message": "PDF download failed. Falling back to Abstract."}) + "\n"
+
+                        # 2. If no PDF or download failed, try scraping HTML if it's a URL
+                        if not full_text and not doc["url"].endswith(".pdf"):
+                            scrape_data = await scraper_service.crawl_domain(doc["url"], max_pages=1)
+                            if scrape_data:
+                                full_text = scrape_data[0]["text"]
+                                yield json.dumps({"step": "ingest", "message": f"Scraped Web Page: {len(full_text)} chars", "progress": 0.2}) + "\n"
+
+                        # 3. Fallback to Abstract
+                        if not full_text:
+                            yield json.dumps({"step": "warning", "message": "No full text/PDF found. Ingesting Abstract only."}) + "\n"
+                            full_text = doc.get("abstract", "") # Fallback
+                        
+                    else:
+                        yield json.dumps({"step": "info", "message": "Ingesting Abstract (No URL).", "progress": 0.2}) + "\n"
+                        # Strategy B: Ingest Abstract direclty
+                        full_text = f"Title: {doc['title']}\nAbstract: {doc.get('abstract', '')}\nURL: {doc.get('url', 'N/A')}\nMetadata: {doc.get('metadata', {})}"
+
+                    if not full_text.strip():
+                         yield json.dumps({"step": "warning", "message": "Skipping empty document."}) + "\n"
+                         continue
+
+                    # Chunk and Ingest (if not already done via PDF parser)
+                    # If we parsed PDF, we effectively have better chunks.
+                    # But ingest_document_generator expects full_text.
+                    
+                    base_metadata = {
+                        "source": doc.get("url") or f"academic_search_{ingest_request.query}",
+                        "source_url": doc.get("url"),
+                        "title": doc.get("title"),
+                        "type": "academic_paper",
+                        "category": ingest_request.category
+                    }
+                    
+                    # If we didn't get chunks from PDF parser, chunk now
+                    # Note: We can optimize this by using PDF chunks if available
+                    # For now, let's keep it simple: re-chunking is fine or passing explicit chunks.
+                    chunks = document_service.chunk_text(full_text, base_metadata)
+                    
+                    async for event in rag_service.ingest_document_generator(full_text, chunks, target_collections=target_cols):
+                         pass
+                    
+                    processed_count += 1
+                    
+                except Exception as e:
+                    yield json.dumps({"step": "warning", "message": f"Failed to ingest {doc.get('title')}: {str(e)}"}) + "\n"
+
+            yield json.dumps({"step": "complete", "message": f"Successfully ingested {processed_count} papers.", "progress": 1.0}) + "\n"
+
+        except Exception as e:
+            yield json.dumps({"step": "error", "message": str(e)}) + "\n"
 
     return StreamingResponse(event_generator(), media_type="application/x-ndjson")
 

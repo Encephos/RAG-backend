@@ -1,21 +1,23 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { Upload, Link, FileText, Loader2, CheckCircle, AlertCircle, RefreshCw, X, Play, Clock, Database } from 'lucide-react';
+import { Upload, Link, FileText, Loader2, CheckCircle, AlertCircle, RefreshCw, X, Play, Clock, Database, GraduationCap } from 'lucide-react';
 import { clsx } from 'clsx';
 
 type IngestItem = {
     id: string;
-    type: 'text' | 'file' | 'url' | 'database';
+    type: 'text' | 'file' | 'url' | 'database' | 'academic';
     content: string | File;
     status: 'pending' | 'processing' | 'completed' | 'error';
     message?: string;
     progress?: number;
     collections: string[];
+    // Extra fields for academic
+    metadata?: { category?: string; limit?: number };
 };
 
 export default function IngestForm() {
-    const [activeTab, setActiveTab] = useState<'text' | 'file' | 'url' | 'database'>('text');
+    const [activeTab, setActiveTab] = useState<'text' | 'file' | 'url' | 'database' | 'academic'>('text');
     const [queue, setQueue] = useState<IngestItem[]>([]);
     const [processing, setProcessing] = useState(false);
 
@@ -23,6 +25,8 @@ export default function IngestForm() {
     const [textInput, setTextInput] = useState('');
     const [urlInput, setUrlInput] = useState('');
     const [recursive, setRecursive] = useState(false);
+    const [academicQuery, setAcademicQuery] = useState('');
+    const [academicCategory, setAcademicCategory] = useState('General');
 
     // API Config
     const API_KEY = process.env.NEXT_PUBLIC_API_KEY || 'secret-api-key';
@@ -89,6 +93,16 @@ export default function IngestForm() {
                 status: 'pending',
                 collections // Although backend hardcodes collections for this specific task, we pass them for UI consistency
             });
+        } else if (activeTab === 'academic' && academicQuery.trim()) {
+            newItems.push({
+                id: crypto.randomUUID(),
+                type: 'academic',
+                content: academicQuery,
+                status: 'pending',
+                collections,
+                metadata: { category: academicCategory, limit: 3 }
+            });
+            setAcademicQuery('');
         }
 
         setQueue(prev => [...prev, ...newItems]);
@@ -159,6 +173,15 @@ export default function IngestForm() {
             endpoint = '/ingest/compounds';
             body = null; // No body needed, trigger only
             // headers['Content-Type'] is not needed or json
+        } else if (item.type === 'academic') {
+            endpoint = '/ingest/academic';
+            body = JSON.stringify({
+                query: item.content as string,
+                limit: item.metadata?.limit || 3,
+                category: item.metadata?.category || "General",
+                collections: item.collections
+            });
+            headers['Content-Type'] = 'application/json';
         }
 
         const response = await fetch(`${BASE_URL}${endpoint}`, {
@@ -218,7 +241,7 @@ export default function IngestForm() {
             <div className="flex-none space-y-6 mb-8">
                 {/* Tabs */}
                 <div className="flex gap-2 p-1 bg-gray-100 rounded-2xl w-fit">
-                    {['text', 'file', 'url', 'database'].map((tab) => (
+                    {['text', 'file', 'url', 'database', 'academic'].map((tab) => (
                         <button
                             key={tab}
                             onClick={() => setActiveTab(tab as any)}
@@ -233,6 +256,7 @@ export default function IngestForm() {
                             {tab === 'file' && <Upload className="w-4 h-4" />}
                             {tab === 'url' && <Link className="w-4 h-4" />}
                             {tab === 'database' && <Database className="w-4 h-4" />}
+                            {tab === 'academic' && <GraduationCap className="w-4 h-4" />}
                             <span className="capitalize">{tab}</span>
                         </button>
                     ))}
@@ -306,6 +330,46 @@ export default function IngestForm() {
                         </div>
                     )}
 
+                    {activeTab === 'academic' && (
+                        <div className="space-y-4">
+                            <div className="p-4 bg-purple-50 rounded-xl border border-purple-100 mb-2">
+                                <div className="flex items-start gap-3">
+                                    <GraduationCap className="w-6 h-6 text-purple-600 mt-1" />
+                                    <div>
+                                        <h4 className="font-semibold text-purple-900 text-sm">Wissenschaftliche Suche</h4>
+                                        <p className="text-xs text-purple-700">
+                                            Durchsucht Semantic Scholar und Crossref nach wissenschaftlichen Papern.
+                                            Gefundene OpenAccess Inhalte werden automatisch importiert.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <textarea
+                                value={academicQuery}
+                                onChange={(e) => setAcademicQuery(e.target.value)}
+                                placeholder="Suchbegriff (z.B. 'Cannabis sativa trichome morphology')..."
+                                className="w-full h-24 p-4 rounded-xl bg-gray-50 border border-gray-200 text-sm focus:ring-2 focus:ring-purple-500/20 outline-none"
+                            />
+
+                            <div className="flex gap-4">
+                                <div className="flex-1">
+                                    <label className="text-xs font-medium text-gray-500 mb-1 block">Kategorie / Fokus</label>
+                                    <select
+                                        value={academicCategory}
+                                        onChange={(e) => setAcademicCategory(e.target.value)}
+                                        className="w-full p-2 rounded-lg border border-gray-200 text-sm bg-white"
+                                    >
+                                        <option value="General">Allgemein</option>
+                                        <option value="Botanik">Botanik (Frontiers...)</option>
+                                        <option value="Medizin">Medizin/Pharmakologie</option>
+                                        <option value="Production">Produktion</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Collection & Add Button */}
                     <div className="flex flex-col gap-4">
                         <div className="grid grid-cols-2 gap-2">
@@ -331,7 +395,7 @@ export default function IngestForm() {
                         {(activeTab !== 'file') && (
                             <button
                                 onClick={() => addToQueue()}
-                                disabled={!((activeTab === 'text' && textInput) || (activeTab === 'url' && urlInput) || activeTab === 'database')}
+                                disabled={!((activeTab === 'text' && textInput) || (activeTab === 'url' && urlInput) || activeTab === 'database' || (activeTab === 'academic' && academicQuery))}
                                 className="w-full py-2 bg-gray-900 text-white rounded-xl text-sm font-medium hover:bg-black transition-all disabled:opacity-50"
                             >
                                 {activeTab === 'database' ? 'Datenbank-Import starten' : 'Zur Pipeline hinzufügen'}

@@ -82,3 +82,9 @@ class Relation(BaseModel):
 class ExtractionResult(BaseModel):
     entities: List[EntityNode]
     relations: List[Relation]
+
+class AcademicIngestRequest(BaseModel):
+    query: str
+    limit: int = 3
+    category: str = "General"
+    collections: Optional[List[str]] = None
