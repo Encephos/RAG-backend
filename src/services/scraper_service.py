@@ -1,5 +1,5 @@
 import trafilatura
-from typing import List, Dict, Any, Set
+from typing import List, Dict, Any, Set, Optional
 from urllib.parse import urlparse, urljoin
 import asyncio
 from bs4 import BeautifulSoup
@@ -38,6 +38,21 @@ class ScraperService:
             }
         except Exception as e:
             logger.error(f"Error scraping {url}: {e}")
+            return None
+
+    def download_file(self, url: str) -> Optional[bytes]:
+        """Download a file from an URL."""
+        import requests
+        try:
+            # Fake User-Agent to avoid blocking
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+            response = requests.get(url, headers=headers, timeout=15)
+            if response.status_code == 200:
+                return response.content
+            logger.warning(f"Download failed {url}: Status {response.status_code}")
+            return None
+        except Exception as e:
+            logger.error(f"Error downloading {url}: {e}")
             return None
 
     async def crawl_domain(self, start_url: str, max_pages: int = 10, max_depth: int = 2) -> List[Dict[str, Any]]:
