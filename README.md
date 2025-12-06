@@ -45,7 +45,7 @@ A production-ready **Retrieval Augmented Generation (RAG)** system combining vec
 
 ```mermaid
 graph TB
-    A[Client (Next.js)] -->|HTTP/REST| B[FastAPI Backend]
+    A["Client (Next.js)"] -->|HTTP/REST| B["FastAPI Backend"]
     
     subgraph "Nexus Council"
     O[Orchestrator]
