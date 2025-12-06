@@ -82,8 +82,8 @@ class TestDocumentService:
         service = DocumentService(chunk_size=100, chunk_overlap=10)
         content = b"fake pdf content"
         
-        # Run async function synchronously
-        chunks, metadata = asyncio.get_event_loop().run_until_complete(
+        # Run async function        # Execute
+        chunks, metadata = asyncio.run(
             service.process_uploaded_file(content, "test.pdf")
         )
         

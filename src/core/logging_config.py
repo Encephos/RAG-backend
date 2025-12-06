@@ -1,0 +1,18 @@
+import logging
+import sys
+
+def setup_logging():
+    """Configure centralized logging."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+    
+    # Set lower level for some noisy libraries if needed
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("qdrant_client").setLevel(logging.WARNING)
+
+logger = logging.getLogger("rag_backend")

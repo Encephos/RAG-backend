@@ -2,30 +2,48 @@ from typing import List, Dict, Any, Optional
 import httpx
 import json
 from src.core.config import settings
+from pydantic import BaseModel
+from src.models.schemas import EntityNode, Relation, ExtractionResult
+import logging
+from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 
-class Triple:
-    def __init__(self, subject: str, predicate: str, obj: str, confidence: float = 1.0):
-        self.subject = subject
-        self.predicate = predicate
-        self.object = obj
-        self.confidence = confidence
-    
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "subject": self.subject,
-            "predicate": self.predicate,
-            "object": self.object,
-            "confidence": self.confidence
-        }
+logger = logging.getLogger(__name__)
 
 class LLMService:
+    """
+    Service for interacting with Large Language Models via OpenRouter.
+    Handles entity extraction and answer generation.
+    """
     def __init__(self):
         self.api_key = settings.OPENROUTER_API_KEY
         self.base_url = settings.OPENROUTER_BASE_URL
         self.model = settings.LLM_MODEL
         
-    def _call_llm(self, messages: List[Dict[str, str]], temperature: float = 0.0) -> str:
-        """Make a call to OpenRouter API."""
+    @retry(
+        wait=wait_exponential(multiplier=1, min=4, max=60),
+        stop=stop_after_attempt(10),
+        retry=retry_if_exception_type(httpx.HTTPStatusError)
+    )
+    async def _call_llm(self, messages: List[Dict[str, str]], temperature: float = 0.0) -> str:
+        """
+        Make an asynchronous call to OpenRouter API.
+        
+        Args:
+            messages: List of message dictionaries (role, content).
+            temperature: Sampling temperature.
+            
+        Returns:
+            The content of the LLM response.
+            
+        Raises:
+            httpx.HTTPError: If the API call fails.
+        """
+        # Calculate approximate token count for logging
+        user_content = next((m["content"] for m in messages if m["role"] == "user"), "")
+        approx_input_tokens = len(user_content) // 4  # Rough estimate: 1 token ≈ 4 chars
+        
+        logger.info(f"🔵 LLM Request | Model: {self.model} | Approx Input Tokens: {approx_input_tokens}")
+        
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -36,70 +54,125 @@ class LLMService:
         payload = {
             "model": self.model,
             "messages": messages,
-            "temperature": temperature
+            "temperature": temperature,
+            "response_format": {"type": "json_object"} # Force JSON mode if supported
         }
         
-        with httpx.Client(timeout=60.0) as client:
-            response = client.post(
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
                 f"{self.base_url}/chat/completions",
                 headers=headers,
                 json=payload
             )
+            if response.is_error:
+                logger.error(f"LLM API Error Status: {response.status_code}")
+                logger.error(f"LLM API Error Body: {response.text}")
+            
             response.raise_for_status()
             data = response.json()
+            
+            # Log usage statistics if available
+            usage = data.get("usage", {})
+            if usage:
+                logger.info(f"✅ LLM Response | Input: {usage.get('prompt_tokens', 'N/A')} tokens | "
+                           f"Output: {usage.get('completion_tokens', 'N/A')} tokens | "
+                           f"Total: {usage.get('total_tokens', 'N/A')} tokens")
+            
             return data["choices"][0]["message"]["content"]
-    
-    def extract_entities(self, text: str) -> List[Triple]:
-        """Extract entities and relations from text using LLM."""
-        system_prompt = """You are an entity and relation extractor. Extract semantic triples from the given text.
-Output ONLY valid JSON array of objects with keys: subject, predicate, object, confidence.
-- subject: the entity performing or being described
-- predicate: the relationship or action (use snake_case like: works_for, located_in, is_a, founded_by, etc.)
-- object: the target entity or value
-- confidence: your confidence 0.0-1.0
 
-Example output:
-[
-  {"subject": "Apple", "predicate": "founded_by", "object": "Steve Jobs", "confidence": 0.95},
-  {"subject": "Apple", "predicate": "headquartered_in", "object": "Cupertino", "confidence": 0.90}
-]
-
-If no entities found, return empty array: []"""
+    async def extract_entities(self, text: str) -> ExtractionResult:
+        """
+        Extract entities (with descriptions) and relations from text using LLM.
+        
+        Args:
+            text: The input text to analyze.
+            
+        Returns:
+            ExtractionResult containing entities and relations.
+        """
+        system_prompt = """You are an expert Knowledge Graph builder. Extract entities and relations from the text.
+        
+        STRICTLY return a valid JSON object with two keys: "entities" and "relations".
+        Do NOT wrap the JSON in markdown code blocks. Return raw JSON only.
+        
+        1. "entities": List of objects with:
+           - "name": Canonical name of the entity
+           - "type": Type (Person, Organization, Location, Concept, etc.)
+           - "description": A concise (max 10 words) summary.
+           
+        2. "relations": List of objects with:
+           - "source": Name of source entity
+           - "target": Name of target entity
+           - "type": Relationship type (snake_case)
+           
+        Ensure the JSON is valid and complete.
+        """
 
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Extract triples from:\n\n{text}"}
+            {"role": "user", "content": f"Extract from:\n\n{text}"}
         ]
         
         try:
-            response = self._call_llm(messages, temperature=0.0)
-            # Parse JSON from response
-            # Handle potential markdown code blocks
-            response = response.strip()
-            if response.startswith("```"):
-                response = response.split("```")[1]
-                if response.startswith("json"):
-                    response = response[4:]
+            response = await self._call_llm(messages, temperature=0.0)
             
-            triples_data = json.loads(response)
-            return [
-                Triple(
-                    subject=t["subject"],
-                    predicate=t["predicate"],
-                    obj=t["object"],
-                    confidence=t.get("confidence", 1.0)
-                )
-                for t in triples_data
-            ]
-        except (json.JSONDecodeError, KeyError, httpx.HTTPError) as e:
-            print(f"Error extracting entities: {e}")
-            return []
+            # Robust JSON extraction
+            import re
+            # Find the first '{' and the last '}'
+            match = re.search(r'\{.*\}', response, re.DOTALL)
+            if match:
+                json_str = match.group(0)
+            else:
+                json_str = response
+            
+            try:
+                data = json.loads(json_str)
+            except json.JSONDecodeError:
+                # Fallback: try to clean markdown code blocks if regex failed or wasn't enough
+                clean_response = response.strip()
+                if clean_response.startswith("```"):
+                    clean_response = clean_response.split("```")[1]
+                    if clean_response.strip().lower().startswith("json"):
+                        clean_response = clean_response.strip()[4:]
+                data = json.loads(clean_response)
+            
+            # Validate and clean relations before Pydantic validation
+            if "relations" in data:
+                valid_relations = []
+                for rel in data["relations"]:
+                    # Check if all required fields are present
+                    if isinstance(rel, dict) and "source" in rel and "target" in rel and "type" in rel:
+                        valid_relations.append(rel)
+                    else:
+                        logger.warning(f"Skipping malformed relation: {rel}")
+                data["relations"] = valid_relations
+            
+            return ExtractionResult(**data)
+            
+        except Exception as e:
+            logger.error(f"Error extracting entities: {e}")
+            return ExtractionResult(entities=[], relations=[])
     
-    def generate_answer(self, query: str, context: str, graph_context: str = "") -> str:
-        """Generate an answer using the retrieved context."""
+    async def generate_answer(self, query: str, context: str, graph_context: str = "") -> str:
+        """
+        Generate an answer using the retrieved context.
+        
+        Args:
+            query: The user's question.
+            context: Retrieved document chunks.
+            graph_context: Retrieved graph information.
+            
+        Returns:
+            The generated answer string.
+        """
         system_prompt = """You are a helpful assistant that answers questions based on the provided context.
-Use ONLY the information from the context to answer. If the context doesn't contain the answer, say so.
-Be concise and accurate."""
+        
+        Instructions:
+        1. Use ONLY the information from the context to answer. If the context doesn't contain the answer, say so.
+        2. Format your answer using Markdown (e.g., use **bold** for key terms, lists for steps, and headers where appropriate).
+        3. Be concise, accurate, and structured.
+        4. IMPORTANT: Always answer in the same language as the user's question (e.g., if asked in German, answer in German; if English, answer in English).
+        """
 
         user_content = f"""Context from documents:
 {context}
@@ -117,6 +190,7 @@ Answer based on the above context:"""
         ]
         
         try:
-            return self._call_llm(messages, temperature=0.3)
-        except httpx.HTTPError as e:
+            return await self._call_llm(messages, temperature=0.3)
+        except Exception as e:
+            logger.error(f"Error generating answer: {e}")
             return f"Error generating answer: {e}"

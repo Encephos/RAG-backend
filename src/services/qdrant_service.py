@@ -3,6 +3,9 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from src.core.config import settings
 import uuid
+import logging
+
+logger = logging.getLogger(__name__)
 
 class QdrantService:
     def __init__(self):
@@ -11,48 +14,91 @@ class QdrantService:
             port=settings.QDRANT_PORT
         )
         self.collection_name = settings.QDRANT_COLLECTION_NAME
-        self._ensure_collection()
+        self.entity_collection_name = settings.QDRANT_ENTITY_COLLECTION_NAME
+        self._ensure_collections()
 
-    def _ensure_collection(self):
-        """Create collection if it doesn't exist."""
-        collections = self.client.get_collections().collections
-        exists = any(c.name == self.collection_name for c in collections)
-        
-        if not exists:
-            # Assuming 384 dim for all-MiniLM-L6-v2
-            self.client.create_collection(
-                collection_name=self.collection_name,
-                vectors_config=models.VectorParams(
-                    size=384,
-                    distance=models.Distance.COSINE
+    def _ensure_collections(self):
+        """Create collections if they don't exist."""
+        try:
+            collections = self.client.get_collections().collections
+            existing_names = [c.name for c in collections]
+            logger.info(f"Existing Qdrant collections: {existing_names}")
+            
+            # Document Collection
+            if self.collection_name not in existing_names:
+                logger.info(f"Creating collection: {self.collection_name}")
+                self.client.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=models.VectorParams(
+                        size=384,
+                        distance=models.Distance.COSINE
+                    )
                 )
-            )
+            else:
+                logger.info(f"Collection {self.collection_name} already exists.")
+                
+            # Entity Collection (for Knowledge Graph)
+            if self.entity_collection_name not in existing_names:
+                logger.info(f"Creating collection: {self.entity_collection_name}")
+                self.client.create_collection(
+                    collection_name=self.entity_collection_name,
+                    vectors_config=models.VectorParams(
+                        size=384,
+                        distance=models.Distance.COSINE
+                    )
+                )
+            else:
+                logger.info(f"Collection {self.entity_collection_name} already exists.")
+                
+        except Exception as e:
+            logger.error(f"Error ensuring collections: {e}")
 
     def upsert(self, text: str, vector: List[float], metadata: Dict[str, Any] = None):
-        """Upsert a single document."""
+        """Upsert a single document chunk."""
         if metadata is None:
             metadata = {}
         
         metadata["text"] = text
         
-        self.client.upsert(
-            collection_name=self.collection_name,
-            points=[
-                models.PointStruct(
-                    id=str(uuid.uuid4()),
-                    vector=vector,
-                    payload=metadata
+        # Generate deterministic ID based on text content to prevent duplicates
+        doc_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, text))
+        
+        try:
+            self.client.upsert(
+                collection_name=self.collection_name,
+                points=[
+                    models.PointStruct(
+                        id=doc_id,
+                        vector=vector,
+                        payload=metadata
+                    )
+                ]
+            )
+        except Exception as e:
+            if "Not found" in str(e) or "doesn't exist" in str(e):
+                logger.warning(f"Collection not found during upsert. Re-creating...")
+                self._ensure_collections()
+                # Retry once
+                self.client.upsert(
+                    collection_name=self.collection_name,
+                    points=[
+                        models.PointStruct(
+                            id=doc_id,
+                            vector=vector,
+                            payload=metadata
+                        )
+                    ]
                 )
-            ]
-        )
+            else:
+                raise e
 
     def search(self, vector: List[float], limit: int = 5) -> List[Dict[str, Any]]:
-        """Search for similar vectors."""
-        results = self.client.search(
+        """Search for similar document chunks."""
+        results = self.client.query_points(
             collection_name=self.collection_name,
-            query_vector=vector,
+            query=vector,
             limit=limit
-        )
+        ).points
         
         return [
             {
@@ -62,3 +108,45 @@ class QdrantService:
             }
             for hit in results
         ]
+
+    # --- Entity / Graph Methods ---
+
+    def upsert_entity(self, entity_id: str, vector: List[float], payload: Dict[str, Any]):
+        """Upsert a graph entity."""
+        self.client.upsert(
+            collection_name=self.entity_collection_name,
+            points=[
+                models.PointStruct(
+                    id=entity_id,
+                    vector=vector,
+                    payload=payload
+                )
+            ]
+        )
+
+    def search_entities(self, vector: List[float], limit: int = 1, score_threshold: float = 0.0) -> List[Any]:
+        """Search for similar entities (for resolution or retrieval)."""
+        return self.client.query_points(
+            collection_name=self.entity_collection_name,
+            query=vector,
+            limit=limit,
+            score_threshold=score_threshold
+        ).points
+
+    def get_entity(self, entity_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve entity payload by ID."""
+        points = self.client.retrieve(
+            collection_name=self.entity_collection_name,
+            ids=[entity_id]
+        )
+        if points:
+            return points[0].payload
+        return None
+
+    def update_entity_payload(self, entity_id: str, payload: Dict[str, Any]):
+        """Update payload of an existing entity."""
+        self.client.set_payload(
+            collection_name=self.entity_collection_name,
+            payload=payload,
+            points=[entity_id]
+        )
