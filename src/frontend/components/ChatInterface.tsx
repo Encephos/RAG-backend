@@ -296,25 +296,48 @@ export default function ChatInterface() {
                                             <h4 className="text-xs font-semibold text-gray-500 uppercase flex items-center gap-2">
                                                 <Users className="w-3 h-3" /> Ratsberichte
                                             </h4>
-                                            {msg.council_results.map((res, i) => (
-                                                <div key={i} className="bg-white border rounded-xl overflow-hidden shadow-sm">
-                                                    <div className="px-4 py-3 bg-gray-50 border-b flex justify-between items-center">
-                                                        <div className="flex items-center gap-2 text-sm font-medium text-gray-900">
-                                                            {/* Find icon based on ID would be better, but role is ok */}
-                                                            <span className="text-lg">
-                                                                {COUNCIL_MEMBERS_LIST.find(m => m.id === res.member_id)?.icon || '👤'}
+                                            {msg.council_results.map((res, i) => {
+                                                const isStandby = res.task === 'Standby';
+                                                return (
+                                                    <div key={i} className={clsx(
+                                                        "border rounded-xl overflow-hidden shadow-sm transition-opacity",
+                                                        isStandby ? "bg-gray-50 border-gray-100 opacity-60" : "bg-white border-gray-200"
+                                                    )}>
+                                                        <div className={clsx(
+                                                            "px-4 py-3 border-b flex justify-between items-center",
+                                                            isStandby ? "bg-gray-100 border-gray-200" : "bg-gray-50 border-gray-100"
+                                                        )}>
+                                                            <div className="flex items-center gap-2 text-sm font-medium text-gray-900">
+                                                                <span className="text-lg">
+                                                                    {COUNCIL_MEMBERS_LIST.find(m => m.id === res.member_id)?.icon || '👤'}
+                                                                </span>
+                                                                {COUNCIL_MEMBERS_LIST.find(m => m.id === res.member_id)?.name || res.role}
+                                                            </div>
+                                                            <span
+                                                                title={res.task}
+                                                                className={clsx(
+                                                                    "text-[10px] px-2 py-1 rounded-full border text-right max-w-[60%] leading-tight",
+                                                                    isStandby ? "text-gray-400 bg-gray-50 border-gray-200" : "text-gray-500 bg-white border-gray-200"
+                                                                )}>
+                                                                {res.task}
                                                             </span>
-                                                            {COUNCIL_MEMBERS_LIST.find(m => m.id === res.member_id)?.name || res.role}
                                                         </div>
-                                                        <span className="text-[10px] text-gray-500 bg-white px-2 py-1 rounded-full border border-gray-200 truncate max-w-[150px]">
-                                                            {res.task}
-                                                        </span>
+                                                        <div className={clsx(
+                                                            "p-4 text-sm prose prose-sm max-w-none",
+                                                            isStandby ? "text-gray-500 italic" : "text-gray-700 bg-white"
+                                                        )}>
+                                                            <ReactMarkdown>{res.answer}</ReactMarkdown>
+
+                                                            {/* Expert Specific Sources */}
+                                                            {((res.used_context && res.used_context.length > 0) || (res.graph_context && Object.keys(res.graph_context).length > 0)) && (
+                                                                <div className="mt-3 pt-3 border-t border-gray-100">
+                                                                    <ContextAccordion context={res.used_context} graph={res.graph_context} />
+                                                                </div>
+                                                            )}
+                                                        </div>
                                                     </div>
-                                                    <div className="p-4 text-sm text-gray-700 bg-white prose prose-sm max-w-none">
-                                                        <ReactMarkdown>{res.answer}</ReactMarkdown>
-                                                    </div>
-                                                </div>
-                                            ))}
+                                                );
+                                            })}
                                         </div>
                                     )}
 

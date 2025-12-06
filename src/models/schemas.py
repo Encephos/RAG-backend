@@ -29,6 +29,7 @@ class CouncilMemberResult(BaseModel):
     task: str
     answer: str
     used_context: List[SearchResult]
+    graph_context: Optional[Dict[str, Any]] = None
 
 class QueryResponse(BaseModel):
     answer: str
