@@ -24,6 +24,8 @@ A production-ready **Retrieval Augmented Generation (RAG)** system combining vec
 - **🔄 Smart Deduplication**: Automatic content deduplication using deterministic IDs.
 - **📄 Multi-Format Support**: PDF, DOCX, PPTX, HTML, Images via [Docling](https://github.com/DS4SD/docling).
 - **🌐 Web Scraping**: Recursive URL crawling with intelligent content extraction.
+- **🎓 Academic Scraper**: Integrated search for scientific papers via Semantic Scholar & Crossref (with PDF auto-download).
+- **🧪 Structured Data Ingestion**: Dedicated XML parser for chemical compound databases.
 
 ### 🛡️ Security & Reliability
 - **🔐 API Key Authentication**: Secure endpoint access.
@@ -55,6 +57,8 @@ graph TB
 
     B --> C[Document Service]
     B --> D[RAG Service]
+    B --> X[Scraper Service]
+    B --> Y[Academic Service]
     B --> O
 
     O -->|Assign Tasks| E1
@@ -157,9 +161,14 @@ The Web UI will be at `http://localhost:3000`.
 3. Choose your **Council Members** from the sidebar.
 4. Ask a question! The system will orchestrate the experts to answer.
 
-### Ingestion
-Use the **"Inhalte aufnehmen"** (Ingest Content) page to upload documents or crawl URLs.
-- Select target collections (e.g., Botanical, Pharmacological) to organize knowledge.
+### Ingestion Options
+Use the **"Inhalte aufnehmen"** (Ingest Content) page to build your knowledge base:
+1.  **File Upload**: Upload PDFs, text files, or images.
+2.  **Web Crawl**: Enter a URL to scrape and ingest recursively.
+3.  **Academic Search**: Enter a topic (e.g., "Cannabinoids pain") to fetch, download, and digest scientific papers automatically.
+4.  **Database Import**: Import structured data (e.g., XML compounds).
+
+> **Note**: Don't forget to select the target **Collection** (e.g., "Botanical Knowledge") to ensure the right expert finds the data!
 
 ---
 
