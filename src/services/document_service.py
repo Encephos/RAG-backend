@@ -2,6 +2,8 @@ from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
 import tempfile
 import os
+import fitz
+import gc
 from dataclasses import dataclass
 
 @dataclass
@@ -33,11 +35,14 @@ class DocumentService:
             self._docling_converter = DocumentConverter()
         return self._docling_converter
 
-    def parse_document(self, file_path: str) -> Tuple[str, Dict[str, Any]]:
+    def parse_document(self, file_path: str, progress_callback=None) -> Tuple[str, Dict[str, Any]]:
         """
         Parse a document using Docling and return extracted text with metadata.
         Supports: PDF, DOCX, PPTX, HTML, images.
         """
+        if file_path.lower().endswith(".pdf"):
+            return self._process_large_pdf(file_path, progress_callback=progress_callback)
+
         converter = self._get_converter()
         result = converter.convert(file_path)
         
@@ -56,6 +61,81 @@ class DocumentService:
         }
         
         return text, metadata
+
+    def _process_large_pdf(self, file_path: str, batch_size: int = 5, progress_callback=None) -> Tuple[str, Dict[str, Any]]:
+        """
+        Smartly process large PDFs by splitting them into batches of pages.
+        Extracts text from each batch and merges the results.
+        """
+        
+        doc = fitz.open(file_path)
+        total_pages = len(doc)
+        
+        if total_pages <= batch_size:
+            # Small enough, process normally
+            doc.close()
+            converter = self._get_converter()
+            result = converter.convert(file_path)
+            text = result.document.export_to_markdown()
+            return text, {
+                "filename": Path(file_path).name,
+                "file_type": ".pdf",
+                "num_pages": total_pages
+            }
+
+        # Large PDF logic
+        full_text_parts = []
+        import tempfile
+        
+        # We instantiate converter here, but we might want to clear it too?
+        # Re-using the singleton self._docling_converter is efficient for model loading,
+        # but might accumulate trash. Let's force GC.
+        converter = self._get_converter()
+        
+        for i in range(0, total_pages, batch_size):
+            end_page = min(i + batch_size, total_pages)
+            
+            # Report progress
+            if progress_callback:
+                progress_callback(i, total_pages)
+                
+            # Create a sub-document
+            sub_doc = fitz.open()
+            sub_doc.insert_pdf(doc, from_page=i, to_page=end_page - 1)
+            
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
+                sub_doc.save(tmp_pdf.name)
+                tmp_path = tmp_pdf.name
+            
+            sub_doc.close()
+            del sub_doc # Explicit delete
+            
+            try:
+                # Convert the chunk
+                result = converter.convert(tmp_path)
+                part_text = result.document.export_to_markdown()
+                full_text_parts.append(part_text)
+                
+                # Explicit cleanup
+                del result
+                del part_text
+            except Exception as e:
+                print(f"Error processing PDF chunk {i}-{end_page}: {e}")
+            finally:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+                    
+            # Force Garbage Collection to prevent OOM
+            gc.collect()
+        
+        doc.close()
+        combined_text = "\n\n".join(full_text_parts)
+        
+        return combined_text, {
+            "filename": Path(file_path).name,
+            "file_type": ".pdf",
+            "num_pages": total_pages
+        }
 
     def chunk_text(self, text: str, metadata: Dict[str, Any] = None) -> List[ChunkInfo]:
         """

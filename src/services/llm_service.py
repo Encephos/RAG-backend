@@ -160,23 +160,15 @@ class LLMService:
     async def generate_answer(self, query: str, context: str, graph_context: str = "") -> str:
         """
         Generate an answer using the retrieved context.
-        
-        Args:
-            query: The user's question.
-            context: Retrieved document chunks.
-            graph_context: Retrieved graph information.
-            
-        Returns:
-            The generated answer string.
         """
         system_prompt = """You are a helpful assistant that answers questions based on the provided context.
         
         Instructions:
         1. Use ONLY the information from the context to answer. If the context doesn't contain the answer, say so.
         2. Format your answer using Markdown (e.g., use **bold** for key terms, lists for steps, > for quotes, and headers where appropriate).
-        3. Be concise, accurate, and structured.
+        3. Be concise but DETAILED and COMPREHENSIVE. Explain concepts thoroughly.
         4. Do NOT output JSON. Output normal text formatted with Markdown.
-        5. IMPORTANT: Always answer in the same language as the user's question (e.g., if asked in German, answer in German; if English, answer in English).
+        5. IMPORTANT: You must ALWAYS answer in GERMAN (Deutsch), regardless of the input language.
         """
 
         user_content = f"""Context from documents:
@@ -187,7 +179,7 @@ Knowledge graph context:
 
 Question: {query}
 
-Answer based on the above context:"""
+Answer based on the above context (in German, detailed):"""
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -200,16 +192,10 @@ Answer based on the above context:"""
         except Exception as e:
             logger.error(f"Error generating answer: {e}")
             return f"Error generating answer: {e}"
+
     async def orchestrate_council(self, query: str, members_info: List[Dict[str, str]]) -> List[Dict[str, str]]:
         """
         Orchestrate the council by assigning tasks to selected members based on the user's query.
-        
-        Args:
-            query: The user's original query.
-            members_info: List of dicts with 'id', 'role', 'description'.
-            
-        Returns:
-            List of dicts with 'id' and 'task'.
         """
         members_desc = "\n".join([f"- ID: {m['id']} | Role: {m['role']} | Description: {m['description']}" for m in members_info])
         
@@ -224,12 +210,13 @@ Answer based on the above context:"""
         2. Assign a specific questions or task to EACH valid expert that is relevant.
         3. If an expert is not relevant to the query, do not assign a task (or assign "None").
         4. Return a JSON object with a key "assignments" containing a list of objects with "member_id" and "task".
+        5. The 'task' description must be in GERMAN, detailed, and specific.
         
         Example JSON:
         {{
             "assignments": [
-                {{ "member_id": "botanist", "task": "Explain the genetic differences between Indica and Sativa regarding sleep." }},
-                {{ "member_id": "pharmacologist", "task": "Analyze the sedative effects of these strains on the CNS." }}
+                {{ "member_id": "botanist", "task": "Erkläre detailliert die genetischen Unterschiede zwischen Indica und Sativa." }},
+                {{ "member_id": "pharmacologist", "task": "Analysiere umfassend die sedative Wirkung auf das ZNS." }}
             ]
         }}
         """
@@ -269,8 +256,9 @@ Answer based on the above context:"""
         Instructions:
         1. Answer the assigned task based ONLY on the provided context.
         2. If context is insufficient, state what is known and what is missing based on your expertise.
-        3. Be concise and professional.
+        3. Provide a DETAILED, SCIENTIFIC, and COMPREHENSIVE answer.
         4. Do NOT output JSON. Output Markdown text.
+        5. IMPORTANT: You must ALWAYS answer in GERMAN (Deutsch).
         """
         
         user_content = f"""Context:
@@ -310,12 +298,12 @@ Answer based on the above context:"""
         Your goal is to synthesize a comprehensive answer to the user's query by integrating reports from your panel of experts and your own master knowledge.
         
         Instructions:
-        1. Answer the User Query comprehensively.
-        2. Integrate insights from the Expert Reports. Explicitly cite the experts (e.g., "As our Botanist noted...", "The Toxicologist warns...").
+        1. Answer the User Query comprehensively and in great detail.
+        2. Integrate insights from the Expert Reports. Explicitly cite the experts (e.g., "Wie unser Botaniker anmerkte...", "Der Toxikologe warnt...").
         3. Use the Master Context to fill in gaps or provide general overview.
         4. Structure the answer logically with Markdown (Headers, Bullet points).
         5. Tone: Authoritative, balanced, and scientifically grounded.
-        6. Always answer in the language of the User's Query.
+        6. IMPORTANT: You must ALWAYS answer in GERMAN (Deutsch).
         """
         
         user_content = f"""User Query: {query}
@@ -326,7 +314,7 @@ Answer based on the above context:"""
         Expert Council Reports:
         {contributions}
         
-        Please provide the final synthesized response.
+        Please provide the final synthesized response in German (Detailed).
         """
         
         messages = [

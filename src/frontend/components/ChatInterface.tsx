@@ -5,6 +5,7 @@ import { api, QueryResponse, SearchResult } from '../utils/api';
 import ReactMarkdown from 'react-markdown';
 import { Send, Bot, User, ChevronDown, ChevronRight, FileText, Sparkles, Network, Check, Users, Sprout, FlaskConical, Activity, Scale } from 'lucide-react';
 import { clsx } from 'clsx';
+import GraphView from './GraphView';
 
 type SessionId = 'Nexus' | 'Nexus Council';
 
@@ -34,6 +35,7 @@ interface Message {
     context?: SearchResult[];
     graph?: any;
     council_results?: any[];
+    relatedQuery?: string;
 }
 
 export default function ChatInterface() {
@@ -50,6 +52,9 @@ export default function ChatInterface() {
     // Council Selection State
     const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
     const [showCouncilSelector, setShowCouncilSelector] = useState(false);
+
+    // Graph State
+    const [graphQuery, setGraphQuery] = useState<string | null>(null);
 
     // Dropdown state
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -153,7 +158,8 @@ export default function ChatInterface() {
                     content: response.data.answer,
                     context: response.data.context,
                     graph: response.data.graph_context,
-                    council_results: response.data.council_results
+                    council_results: response.data.council_results,
+                    relatedQuery: userQuery
                 }]
             }));
         } catch (error: any) {
@@ -284,11 +290,12 @@ export default function ChatInterface() {
                                     msg.type === 'user' ? 'text-right order-1' : ''
                                 )}>
                                     <div className={clsx(
-                                        "prose prose-lg max-w-none text-gray-800 prose-headings:font-medium prose-p:leading-relaxed prose-pre:bg-gray-900 prose-pre:rounded-xl min-w-0",
+                                        "prose prose-sm max-w-none text-gray-800 prose-headings:font-medium prose-p:leading-relaxed prose-pre:bg-gray-900 prose-pre:rounded-xl min-w-0",
                                         msg.type === 'user' && "bg-gray-100 inline-block px-6 py-4 rounded-[2rem] rounded-tr-md text-left"
                                     )}>
                                         <ReactMarkdown>{msg.content}</ReactMarkdown>
                                     </div>
+
 
                                     {/* Council Breakdown */}
                                     {msg.type === 'bot' && msg.council_results && msg.council_results.length > 0 && (
@@ -342,8 +349,12 @@ export default function ChatInterface() {
                                     )}
 
                                     {/* Context & Graph Accordion */}
-                                    {msg.type === 'bot' && (msg.context || msg.graph) && (
-                                        <ContextAccordion context={msg.context} graph={msg.graph} />
+                                    {msg.type === 'bot' && (msg.context || msg.graph || msg.relatedQuery) && (
+                                        <ContextAccordion
+                                            context={msg.context}
+                                            graph={msg.graph}
+                                            query={msg.relatedQuery}
+                                        />
                                     )}
                                 </div>
                             </div>
@@ -369,11 +380,11 @@ export default function ChatInterface() {
             </div>
 
             {/* Input Area (Bottom Fixed) */}
-            <div className="absolute bottom-0 left-0 w-full p-6 bg-gradient-to-t from-white via-white to-transparent pt-20 z-30">
+            <div className="absolute bottom-0 left-0 w-full p-6 bg-gradient-to-t from-white via-white to-transparent pt-20 z-30 pointer-events-none">
 
                 {/* Council Member Selector (Visible only in Council Mode) */}
                 {activeSession === 'Nexus Council' && (
-                    <div className="max-w-3xl mx-auto mb-4 animate-in slide-in-from-bottom-2 fade-in">
+                    <div className="max-w-3xl mx-auto mb-4 animate-in slide-in-from-bottom-2 fade-in pointer-events-auto">
                         <div
                             className="bg-white/90 backdrop-blur-md border border-purple-100 rounded-2xl p-4 shadow-lg ring-1 ring-purple-500/10 cursor-pointer"
                             onClick={() => setShowCouncilSelector(!showCouncilSelector)}
@@ -438,7 +449,7 @@ export default function ChatInterface() {
                     </div>
                 )}
 
-                <div className="max-w-3xl mx-auto relative bg-gray-100 rounded-full flex items-center px-4 py-3 hover:shadow-md transition-shadow focus-within:bg-white focus-within:shadow-lg focus-within:ring-1 focus-within:ring-gray-200">
+                <div className="max-w-3xl mx-auto relative bg-gray-100 rounded-full flex items-center px-4 py-3 hover:shadow-md transition-shadow focus-within:bg-white focus-within:shadow-lg focus-within:ring-1 focus-within:ring-gray-200 pointer-events-auto">
                     <input
                         type="text"
                         value={query}
@@ -448,7 +459,18 @@ export default function ChatInterface() {
                         className="flex-1 bg-transparent border-none outline-none px-4 text-gray-800 placeholder-gray-500 h-full"
                     />
 
-                    <div className="flex items-center gap-1 pr-2">
+                    <div className="flex items-center gap-2 pr-2">
+                        <button
+                            type="button"
+                            onClick={() => query.trim() && setGraphQuery(query)}
+                            title="Als Graph visualisieren"
+                            className={clsx(
+                                "p-2 rounded-full transition-colors",
+                                query.trim() ? "text-purple-500 hover:bg-purple-50" : "text-gray-300 cursor-not-allowed"
+                            )}
+                        >
+                            <Network className="w-5 h-5" />
+                        </button>
                         {(query.trim()) && (
                             <button
                                 onClick={() => handleQuery()}
@@ -459,6 +481,18 @@ export default function ChatInterface() {
                         )}
                     </div>
                 </div>
+
+                {/* Graph Overlay */}
+                {graphQuery && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in cursor-pointer" onClick={() => setGraphQuery(null)}>
+                        <div className="w-full max-w-4xl max-h-[90vh] flex flex-col items-center" onClick={e => e.stopPropagation()}>
+                            <GraphView query={graphQuery} className="w-full" />
+                            <button onClick={() => setGraphQuery(null)} className="mt-4 px-6 py-2 bg-white rounded-full text-black font-medium hover:scale-105 transition-transform">
+                                Schließen
+                            </button>
+                        </div>
+                    </div>
+                )}
                 <div className="text-center mt-3">
                     <p className="text-xs text-gray-400">Nexus may display inaccurate info, including about people, so double-check its responses.</p>
                 </div>
@@ -467,25 +501,76 @@ export default function ChatInterface() {
     );
 }
 
-function ContextAccordion({ context, graph }: { context?: SearchResult[], graph?: any }) {
+interface Message {
+    type: 'user' | 'bot';
+    content: string;
+    context?: SearchResult[];
+    graph?: any;
+    council_results?: any[];
+    relatedQuery?: string;
+}
+
+function ContextAccordion({ context, graph, query }: { context?: SearchResult[], graph?: any, query?: string }) {
     const [isOpen, setIsOpen] = useState(false);
 
-    if ((!context || context.length === 0) && (!graph || Object.keys(graph).length === 0)) return null;
+    const [isGraphOpen, setIsGraphOpen] = useState(false);
+
+    if ((!context || context.length === 0) && (!graph || Object.keys(graph).length === 0) && !query) return null;
 
     return (
-        <div className="mt-4 relative z-10">
-            <button
-                onClick={() => setIsOpen(!isOpen)}
-                className="flex items-center gap-2 text-xs font-medium text-gray-500 hover:text-blue-600 transition-colors bg-white border border-gray-200 px-3 py-1.5 rounded-full shadow-sm hover:shadow cursor-pointer select-none active:scale-95 transition-transform"
-            >
-                <Sparkles className="w-3 h-3" />
-                {isOpen ? "Quellen verbergen" : "Quellen anzeigen"}
-            </button>
+        <div className="mt-4 relative z-10 pointer-events-auto">
+            <div className="flex flex-wrap items-center gap-2 mb-2">
+                <button
+                    type="button"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setIsOpen(!isOpen);
+                    }}
+                    className={clsx(
+                        "flex items-center gap-2 text-xs font-medium transition-colors bg-white border px-4 py-2 rounded-full shadow-sm hover:shadow cursor-pointer select-none active:scale-95 transition-transform",
+                        isOpen ? "text-blue-600 border-blue-200" : "text-gray-500 border-gray-200 hover:text-blue-600"
+                    )}
+                >
+                    <Sparkles className="w-3 h-3" />
+                    {isOpen ? "Quellen verbergen" : "Quellen anzeigen"}
+                </button>
 
-            {isOpen && (
-                <div className="mt-4 p-4 pr-6 bg-gray-50 rounded-2xl border border-gray-200 space-y-4 animate-in fade-in slide-in-from-top-1 duration-200 w-full box-border overflow-hidden">
+                {query && (
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setIsGraphOpen(!isGraphOpen);
+                        }}
+                        className={clsx(
+                            "flex items-center gap-2 text-xs font-medium transition-colors bg-white border px-4 py-2 rounded-full shadow-sm hover:shadow cursor-pointer select-none active:scale-95 transition-transform",
+                            isGraphOpen ? "text-purple-700 border-purple-200 bg-purple-50" : "text-gray-500 border-gray-200 hover:text-purple-600"
+                        )}
+                    >
+                        <Network className="w-3 h-3" />
+                        {isGraphOpen ? "Graph verbergen" : "Graph anzeigen"}
+                    </button>
+                )}
+            </div>
+
+            {(isOpen || isGraphOpen) && (
+                <div className="mt-2 p-4 pr-6 bg-gray-50 rounded-2xl border border-gray-200 space-y-4 animate-in fade-in slide-in-from-top-1 duration-200 w-full box-border overflow-hidden col-span-2">
+
+                    {/* Graph Visualization Inline */}
+                    {isGraphOpen && query && (
+                        <div className="mb-6 bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+                            {/* We need to pass the query string. onVisualize was a void function in previous step.
+                                We need to pass the query string down.
+                                Let's modify the props to accept 'query' string instead of/in addition to onVisualize.
+                                Actually, onVisualize was just setting global state.
+                                For inline, we need the query string prop.
+                            */}
+                            <GraphView query={query} className="w-full" />
+                        </div>
+                    )}
+
                     {/* Vector Context */}
-                    {context && context.length > 0 && (
+                    {isOpen && context && context.length > 0 && (
                         <div>
                             <h4 className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase mb-3 select-none">
                                 <FileText className="w-3 h-3" /> Retrieved Documents
@@ -498,11 +583,11 @@ function ContextAccordion({ context, graph }: { context?: SearchResult[], graph?
                         </div>
                     )}
 
-                    {/* Graph Context */}
-                    {graph && graph.summary && (
+                    {/* Graph Context Text (Fallback or Supplement) */}
+                    {isOpen && graph && graph.summary && (
                         <div>
                             <h4 className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase mb-3 select-none">
-                                <Network className="w-3 h-3" /> Knowledge Graph
+                                <Network className="w-3 h-3" /> Knowledge Graph Summary
                             </h4>
                             <div className="bg-white p-3 rounded-lg border border-gray-200 text-sm text-gray-800">
                                 {graph.summary}

@@ -17,6 +17,10 @@ class ScraperService:
         Scrape a single URL using Trafilatura.
         Returns dictionary with text, title, and metadata.
         """
+        if not self._validate_url(url):
+            logger.warning(f"Blocked unsafe or invalid URL: {url}")
+            return None
+
         try:
             downloaded = trafilatura.fetch_url(url)
             if not downloaded:
@@ -39,6 +43,45 @@ class ScraperService:
         except Exception as e:
             logger.error(f"Error scraping {url}: {e}")
             return None
+
+    def _validate_url(self, url: str) -> bool:
+        """
+        Validate URL to prevent SSRF (Server Side Request Forgery).
+        Blocks:
+        - Localhost / Loopback
+        - Private networks (10.x, 192.168.x, 172.16.x)
+        - Link-local
+        """
+        import ipaddress
+        import socket
+        
+        try:
+            parsed = urlparse(url)
+            if parsed.scheme not in ('http', 'https'):
+                return False
+                
+            hostname = parsed.hostname
+            if not hostname:
+                return False
+                
+            # Allow public domains, block specific IPs
+            try:
+                # Resolve hostname to IP
+                ip_list = socket.getaddrinfo(hostname, None)
+                for item in ip_list:
+                    ip_str = item[4][0]
+                    ip_obj = ipaddress.ip_address(ip_str)
+                    
+                    if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local:
+                        return False
+                        
+            except socket.gaierror:
+                # Could not resolve, might be potentially unsafe or just broken
+                return False
+                
+            return True
+        except Exception:
+            return False
 
     def download_file(self, url: str) -> Optional[bytes]:
         """Download a file from an URL."""

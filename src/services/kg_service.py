@@ -118,6 +118,96 @@ class KnowledgeGraphService:
         
         return "\n".join(context_lines)
 
+    async def get_visualization_data(self, query: str, collection_name: str = None) -> Dict[str, Any]:
+        """
+        Flatten the graph context into a node-link structure for visualization.
+        """
+        # Embed query
+        query_vector = await self.embedder.embed_query(query)
+        
+        # Search for central nodes
+        # We assume 'entities' collection if not specified or derived from name
+        # If collection_name is passed (e.g. 'botanical_knowledge'), map it to entities
+        target_collection = collection_name
+        if not target_collection:
+             # Default to a generic search or all known entity collections?
+             # For now, let's assume we search in the default entity collection associated with settings
+             from src.core.config import settings
+             target_collection = settings.QDRANT_ENTITY_COLLECTION_NAME
+        
+        # Search
+        results = self.qdrant.search_entities(query_vector, limit=20, score_threshold=0.35, collection_name=target_collection)
+        
+        nodes = {}
+        links = []
+        
+        for point in results:
+            payload = point.payload
+            p_id = payload.get("id")
+            
+            if p_id not in nodes:
+                nodes[p_id] = {
+                    "id": p_id,
+                    "label": payload.get("name"),
+                    "group": payload.get("type", "concept"),
+                    "val": point.score * 10 # Size based on relevance
+                }
+            
+            # Process relations for links
+            relations = payload.get("relations", [])
+            for rel in relations:
+                target_id = rel.get("target_id")
+                # We add the link
+                links.append({
+                    "source": p_id,
+                    "target": target_id,
+                    "label": rel.get("type", "related_to")
+                })
+                
+                # We might want to fetch the target node details if not already in nodes?
+                # For visualization to be complete, we need the target node label.
+                # But Qdrant 'get' is 1-by-1. For performance, we might just create a placeholder node
+                # if we don't have it, or rely on it being found in the search if relevant?
+                # Better: Add a "stub" node if missing, maybe the UI can fetch details or just show ID/Unknown.
+                # However, our relation storage usually stores just ID.
+                # Optimization: In `add_relation`, we could store target_name too. 
+                # Without target_name, the graph looks ugly (just IDs).
+                # Let's check `add_relation` logic... it stores target_id.
+                
+                # WORKAROUND: For now, if we don't have the target node in our search results,
+                # we just show the ID or skip it? 
+                # Ideally, we should do a batch fetch for missing IDs. Qdrant supports retrieve by list of IDs.
+                
+        # Batch fetch missing nodes
+        all_node_ids = set(nodes.keys())
+        target_ids = {l["target"] for l in links}
+        missing_ids = list(target_ids - all_node_ids)
+        
+        if missing_ids:
+            # Batch retrieve
+             # Note: QdrantService might need a batch get method. 
+             # Let's try to access Qdrant client directly or add a method.
+             # Checking QdrantService... it has `get_entity`.
+             # We can do parallel gets or add a batch get.
+             # Implementation choice: Add `get_entities(ids)` to QdrantService in next step if needed,
+             # OR just loop `get_entity` here (slower but safer for now).
+            pass
+            # For this iteration, let's just loop (limit is small, 15 nodes * avg 2 relations = 30 max)
+            for m_id in missing_ids:
+                 entity = self.qdrant.get_entity(m_id, collection_name=target_collection)
+                 if entity:
+                     nodes[m_id] = {
+                         "id": m_id,
+                         "label": entity.get("name"),
+                         "group": entity.get("type", "target"),
+                         "val": 1 # Default size
+                     }
+        
+        return {
+            "nodes": list(nodes.values()),
+            "links": links
+        }
+
     def clear(self) -> None:
         """Clear is not easily supported in persistent vector store without dropping collection."""
         pass

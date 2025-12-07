@@ -67,11 +67,11 @@ class TestDocumentService:
         mock_get_converter.return_value = mock_converter
         
         service = DocumentService()
-        text, metadata = service.parse_document("/fake/path/document.pdf")
+        text, metadata = service.parse_document("/fake/path/document.docx")
         
         assert "# Title" in text
-        assert metadata["filename"] == "document.pdf"
-        assert metadata["file_type"] == ".pdf"
+        assert metadata["filename"] == "document.docx"
+        assert metadata["file_type"] == ".docx"
 
     @patch("src.services.document_service.DocumentService.parse_document")
     def test_process_uploaded_file(self, mock_parse):
@@ -122,3 +122,31 @@ class TestDocumentMetadata:
         assert metadata.filename == "test.pdf"
         assert metadata.num_pages == 10
         assert metadata.num_chunks == 5
+    @patch("src.services.document_service.fitz.open")
+    @patch("src.services.document_service.DocumentService._get_converter")
+    @patch("src.services.document_service.gc.collect")
+    def test_process_large_pdf(self, mock_gc, mock_get_converter, mock_fitz_open):
+        """Test large PDF splitting logic."""
+        # Mock PDF Document
+        mock_doc = MagicMock()
+        mock_doc.__len__.return_value = 15 # 15 pages -> 3 chunks of 5 (since batch_size=5)
+        mock_fitz_open.return_value = mock_doc
+        
+        # Mock Converter
+        mock_converter = MagicMock()
+        mock_result = MagicMock()
+        mock_result.document.export_to_markdown.return_value = "Chunk Content"
+        mock_converter.convert.return_value = mock_result
+        mock_get_converter.return_value = mock_converter
+        
+        service = DocumentService()
+        
+        # We need to mock os.unlink and path.exists to avoid file errors
+        with patch("os.unlink"), patch("os.path.exists", return_value=True):
+            text, metadata = service._process_large_pdf("large.pdf", batch_size=5)
+            
+        assert "Chunk Content" in text
+        # Should be called 3 times (0-5, 5-10, 10-15)
+        assert mock_converter.convert.call_count == 3 
+        assert mock_fitz_open.call_count >= 1 # Initial open + sub-opens
+        assert mock_gc.call_count == 3 # Once per batch

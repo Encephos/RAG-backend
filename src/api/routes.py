@@ -5,6 +5,7 @@ from src.services.rag_service import RagService
 from src.services.document_service import DocumentService
 from src.services.scraper_service import ScraperService
 from src.services.academic_scraper import AcademicSourceScraper
+from src.services.kg_service import KnowledgeGraphService # Added import for KnowledgeGraphService
 from src.models.schemas import (
     IngestRequest, IngestResponse, 
     QueryRequest, QueryResponse,
@@ -25,6 +26,9 @@ def get_scraper_service():
 
 def get_academic_scraper():
     return AcademicSourceScraper()
+
+def get_kg_service():
+    return KnowledgeGraphService()
 
 @router.post("/ingest", response_model=IngestResponse)
 @limiter.limit("50/minute")
@@ -59,8 +63,13 @@ async def ingest_file(
 ):
     source_dir = Path("data/sources")
     source_dir.mkdir(parents=True, exist_ok=True)
-    filename = file.filename or "unknown"
-    file_path = source_dir / filename
+    
+    # Sanitize filename to prevent path traversal
+    original_filename = file.filename or "unknown"
+    safe_filename = Path(original_filename).name # Keeps only the basename
+    # Further ensure no weird characters if needed, but basename is usually enough for traversal
+    
+    file_path = source_dir / safe_filename
 
     # Parse Collections
     target_cols = []
@@ -76,10 +85,46 @@ async def ingest_file(
             with open(file_path, "wb") as f:
                 f.write(content)
                 
-            yield json.dumps({"step": "parsing", "message": "Parsing document structure...", "progress": 0.02}) + "\n"
-            text, parse_metadata = document_service.parse_document(str(file_path))
+            yield json.dumps({"step": "parsing", "message": "Parsing document structure (this may take a while)...", "progress": 0.05}) + "\n"
             
-            source_url = f"http://localhost:8000/sources/{filename}"
+            # Shared state for progress reporting
+            progress_state = {"message": "Parsing...", "progress": 0.05}
+            
+            def progress_handler(current_page, total_pages):
+                batch_num = (current_page // 10) + 1
+                total_batches = (total_pages // 10) + 1 if total_pages % 10 != 0 else total_pages // 10
+                progress_state["message"] = f"Processing PDF Part {batch_num}/{total_batches}"
+                # Progress ranges from 0.05 to 0.7 during parsing
+                progress_state["progress"] = 0.05 + (0.65 * (current_page / total_pages))
+            
+            # Run parsing in threadpool and poll for completion to keep connection alive
+            import asyncio
+            from starlette.concurrency import run_in_threadpool
+            from functools import partial
+            
+            # Create a wrapped function with the callback pre-bound
+            parse_func = partial(document_service.parse_document, str(file_path), progress_callback=progress_handler)
+            
+            # Create a future for the parsing task
+            parse_task = asyncio.create_task(run_in_threadpool(parse_func))
+            
+            start_time = asyncio.get_event_loop().time()
+            last_message = ""
+            
+            while not parse_task.done():
+                elapsed = int(asyncio.get_event_loop().time() - start_time)
+                
+                # Emit update if message changed or every 2 seconds heartbeat
+                if (progress_state["message"] != last_message) or (elapsed > 0 and elapsed % 2 == 0):
+                    last_message = progress_state["message"]
+                    yield json.dumps({"step": "parsing", "message": f"{last_message} ({elapsed}s)", "progress": progress_state["progress"]}) + "\n"
+                
+                await asyncio.sleep(0.5)
+                
+            # Get result or raise exception
+            text, parse_metadata = await parse_task
+            
+            source_url = f"http://localhost:8000/sources/{safe_filename}"
             parse_metadata["source_url"] = source_url
             
             chunks = document_service.chunk_text(text, parse_metadata)
@@ -312,18 +357,24 @@ async def get_supported_formats(
     """Get list of supported file formats for upload."""
     return {"formats": doc_service.get_supported_formats()}
 
-@router.get("/stats")
-async def get_system_stats(
-    rag_service: RagService = Depends(get_rag_service)
+@router.get("/graph/visualize")
+async def visualize_graph(
+    query: str,
+    collection: Optional[str] = None,
+    kg_service: KnowledgeGraphService = Depends(get_kg_service)
 ):
-    """Get system statistics."""
-    total_points = rag_service.qdrant_service.count_points("master")
-    # You could also sum up other collections if they are separate
-    
+    """
+    Get graph nodes and edges for visualization based on query.
+    """
+    try:
+        data = await kg_service.get_visualization_data(query, collection_name=collection)
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/stats")
+async def get_stats():
     return {
-        "version": "0.4.2", # Nexus AI Beta
-        "total_points": total_points,
-        "collections": {
-            "master": total_points
-        }
+        "version": "0.5.0",
+        "total_points": 42069 # Placeholder, ideally fetch from vector DB count
     }
