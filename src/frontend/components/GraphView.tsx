@@ -14,8 +14,8 @@ interface GraphData {
     links: { source: string; target: string; label: string }[];
 }
 
-export default function GraphView({ query, className }: { query: string; className?: string }) {
-    const [data, setData] = useState<GraphData | null>(null);
+export default function GraphView({ query, data: initialData, className }: { query?: string; data?: GraphData; className?: string }) {
+    const [data, setData] = useState<GraphData | null>(initialData || null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isFullscreen, setIsFullscreen] = useState(false);
@@ -41,6 +41,14 @@ export default function GraphView({ query, className }: { query: string; classNa
             setLoading(false);
         }
     }, [query]);
+
+    useEffect(() => {
+        if (initialData) {
+            setData(initialData);
+        } else if (query) {
+            fetchGraph();
+        }
+    }, [fetchGraph, initialData, query]);
 
     useEffect(() => {
         fetchGraph();

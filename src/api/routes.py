@@ -404,3 +404,55 @@ async def get_stats():
         "version": "0.5.0",
         "total_points": 42069 # Placeholder, ideally fetch from vector DB count
     }
+
+import base64
+
+@router.post("/tools/diagnose-leaf")
+async def diagnose_leaf(
+    file: UploadFile = File(...),
+    rag_service: RagService = Depends(get_rag_service)
+):
+    """
+    Diagnose a cannabis leaf image using Gemini Vision + Botanical Agent.
+    """
+    # 1. Read and encode image
+    contents = await file.read()
+    image_b64 = base64.b64encode(contents).decode("utf-8")
+
+    # 2. Vision Analysis (Gemini 2.5)
+    vision_prompt = "Beschreibe präzise alle Mangelerscheinungen (Verfärbungen, Flecken, Blattstruktur), Schädlinge oder Krankheiten auf diesem Cannabis-Blatt. Sei sehr detailgenau."
+    img_description = await rag_service.llm_service.analyze_image(image_b64, vision_prompt)
+
+    # 3. RAG Query (Botanist)
+    query = f"Basierend auf dieser visuellen Analyse: '{img_description}' - Was fehlt der Pflanze und wie behandle ich es?"
+    
+    query_vector = await rag_service.embedding_service.embed_query(query)
+    
+    # Search in Botanical knowledge base
+    rag_results = rag_service.qdrant_service.search(
+        vector=query_vector,
+        limit=3,
+        collection_alias="botanical" 
+    )
+    
+    context = "\n".join([f"- {doc['text']}" for doc in rag_results])
+    
+    # 4. Generate Diagnosis
+    final_diagnosis = await rag_service.llm_service.generate_answer(query, context)
+
+    # 5. Fetch Knowledge Graph Visualization
+    # unique to botanical collection
+    entity_col = rag_service.qdrant_service.entity_collections.get("botanical")
+    graph_data = {"nodes": [], "edges": []}
+    if entity_col:
+        try:
+             graph_data = await rag_service.kg_service.get_visualization_data(query, collection_name=entity_col)
+        except Exception:
+            pass # Fail silently for graph viz if empty
+
+    return {
+        "visual_analysis": img_description,
+        "diagnosis": final_diagnosis,
+        "rag_context": rag_results.to_dict() if hasattr(rag_results, "to_dict") else rag_results,
+        "graph_data": graph_data
+    }

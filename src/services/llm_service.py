@@ -41,7 +41,13 @@ class LLMService:
         """
         # Calculate approximate token count for logging
         user_content = next((m["content"] for m in messages if m["role"] == "user"), "")
-        approx_input_tokens = len(user_content) // 4  # Rough estimate: 1 token ≈ 4 chars
+        
+        # Handle list content (multimodal) for logging safety
+        if isinstance(user_content, list):
+             text_parts = [item["text"] for item in user_content if item.get("type") == "text"]
+             approx_input_tokens = sum(len(t) for t in text_parts) // 4
+        else:
+             approx_input_tokens = len(user_content) // 4  # Rough estimate: 1 token ≈ 4 chars
         
         logger.info(f"🔵 LLM Request | Model: {self.model} | Approx Input Tokens: {approx_input_tokens}")
         
@@ -82,6 +88,26 @@ class LLMService:
                            f"Total: {usage.get('total_tokens', 'N/A')} tokens")
             
             return data["choices"][0]["message"]["content"]
+
+    async def analyze_image(self, image_base64: str, prompt: str = "Beschreibe visuelle Anomalien.") -> str:
+        """
+        Send an image to Gemini 2.5 Flash for analysis.
+        """
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{image_base64}"
+                        }
+                    }
+                ]
+            }
+        ]
+        return await self._call_llm(messages, temperature=0.2, response_format=None)
 
     async def extract_entities(self, text: str) -> ExtractionResult:
         """

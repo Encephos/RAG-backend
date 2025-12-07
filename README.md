@@ -25,7 +25,13 @@ A production-ready **Retrieval Augmented Generation (RAG)** system combining vec
 - **📄 Multi-Format Support**: PDF, DOCX, PPTX, HTML, Images via [Docling](https://github.com/DS4SD/docling).
 - **🌐 Web Scraping**: Recursive URL crawling with intelligent content extraction.
 - **🎓 Academic Scraper**: Integrated search for scientific papers via Semantic Scholar & Crossref (with PDF auto-download).
+- **🎓 Academic Scraper**: Integrated search for scientific papers via Semantic Scholar & Crossref (with PDF auto-download).
 - **🧪 Structured Data Ingestion**: Dedicated XML parser for chemical compound databases.
+
+### 🌿 Nexus Grow Vision
+- **👁️ Plant Diagnosis**: Upload photos of cannabis leaves for instant AI analysis.
+- **⚕️ Multimodal Rag**: Combines Gemini Vision (image analysis) with the Botanical Agent (RAG) for accurate treatment advice.
+- **🕸️ Visual Knowledge**: Shows interactive Knowledge Graph connections for diagnosed deficiencies.
 
 ### 🛡️ Security & Reliability
 - **🔐 API Key Authentication**: Secure endpoint access.

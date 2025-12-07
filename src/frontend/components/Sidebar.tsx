@@ -1,10 +1,10 @@
 'use client';
 
 import { clsx } from 'clsx';
-import { MessageSquare, Upload, Menu, Settings } from 'lucide-react';
+import { MessageSquare, Upload, Menu, Settings, ScanEye } from 'lucide-react';
 import { useState } from 'react';
 
-type View = 'chat' | 'ingest';
+type View = 'chat' | 'ingest' | 'vision';
 
 interface SidebarProps {
     activeView: View;
@@ -47,6 +47,13 @@ export default function Sidebar({ activeView, onViewChange }: SidebarProps) {
                     isActive={activeView === 'ingest'}
                     isCollapsed={collapsed}
                     onClick={() => onViewChange('ingest')}
+                />
+                <NavItem
+                    icon={ScanEye}
+                    label="Nexus Grow Vision"
+                    isActive={activeView === 'vision'}
+                    isCollapsed={collapsed}
+                    onClick={() => onViewChange('vision')}
                 />
             </nav>
 

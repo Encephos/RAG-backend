@@ -172,9 +172,24 @@ class ScraperService:
                     
                     # Filter: same domain, http/https
                     if parsed.netloc == domain and parsed.scheme in ('http', 'https'):
+                        path_lower = parsed.path.lower()
                         # Exclude common non-html extensions
-                        if not any(parsed.path.lower().endswith(ext) for ext in ['.pdf', '.jpg', '.png', '.zip', '.css', '.js']):
-                            links.append(full_url)
+                        if any(path_lower.endswith(ext) for ext in [
+                            '.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', 
+                            '.woff', '.woff2', '.ttf', '.eot', '.mp4', '.mp3', '.pdf', 
+                            '.zip', '.tar', '.gz', '.xml', '.json'
+                        ]):
+                            continue
+                            
+                        # Exclude common unwanted paths
+                        if any(x in path_lower for x in [
+                            'login', 'register', 'signin', 'signup', 'logout', 
+                            'cart', 'checkout', 'account', 'admin', 'dashboard',
+                             'wp-json', 'wp-includes', 'wp-content', 'feed', 'rss'
+                        ]):
+                            continue
+                            
+                        links.append(full_url)
                 except Exception:
                     continue
             return links

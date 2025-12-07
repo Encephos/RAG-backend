@@ -25,6 +25,8 @@ export default function IngestForm() {
     const [textInput, setTextInput] = useState('');
     const [urlInput, setUrlInput] = useState('');
     const [recursive, setRecursive] = useState(false);
+    const [maxPages, setMaxPages] = useState(10);
+    const [maxDepth, setMaxDepth] = useState(2);
     const [academicQuery, setAcademicQuery] = useState('');
     const [academicCategory, setAcademicCategory] = useState('General');
 
@@ -157,7 +159,9 @@ export default function IngestForm() {
             endpoint = '/ingest/url';
             body = JSON.stringify({
                 url: item.content as string,
-                recursive: recursive, // Global recursive setting for now
+                recursive: recursive,
+                max_pages: maxPages,
+                max_depth: maxDepth,
                 collections: item.collections
             });
             headers['Content-Type'] = 'application/json';
@@ -299,15 +303,46 @@ export default function IngestForm() {
                                 placeholder="URLs hier eingeben (eine pro Zeile)...&#10;https://example.com&#10;https://another.com"
                                 className="w-full h-32 p-4 rounded-xl bg-gray-50 border border-gray-200 text-sm focus:ring-2 focus:ring-blue-500/20 outline-none font-mono"
                             />
-                            <div className="flex items-center gap-2">
-                                <input
-                                    type="checkbox"
-                                    checked={recursive}
-                                    onChange={(e) => setRecursive(e.target.checked)}
-                                    id="recursive"
-                                    className="rounded border-gray-300"
-                                />
-                                <label htmlFor="recursive" className="text-xs text-gray-600">Rekursives Crawling (Max 5 Seiten)</label>
+                            <div className="flex flex-wrap items-center gap-6 mt-2">
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="checkbox"
+                                        checked={recursive}
+                                        onChange={(e) => setRecursive(e.target.checked)}
+                                        id="recursive"
+                                        className="rounded border-gray-300 w-4 h-4 text-blue-600 focus:ring-blue-500"
+                                    />
+                                    <label htmlFor="recursive" className="text-sm text-gray-700 font-medium">Rekursiv Crawlen</label>
+                                </div>
+
+                                {recursive && (
+                                    <>
+                                        <div className="flex items-center gap-2">
+                                            <label htmlFor="maxPages" className="text-xs text-gray-500">Max Seiten:</label>
+                                            <input
+                                                type="number"
+                                                id="maxPages"
+                                                value={maxPages}
+                                                onChange={(e) => setMaxPages(parseInt(e.target.value) || 1)}
+                                                min={1}
+                                                max={100}
+                                                className="w-16 p-1 text-sm border border-gray-200 rounded text-center"
+                                            />
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <label htmlFor="maxDepth" className="text-xs text-gray-500">Tiefe:</label>
+                                            <input
+                                                type="number"
+                                                id="maxDepth"
+                                                value={maxDepth}
+                                                onChange={(e) => setMaxDepth(parseInt(e.target.value) || 1)}
+                                                min={1}
+                                                max={5}
+                                                className="w-16 p-1 text-sm border border-gray-200 rounded text-center"
+                                            />
+                                        </div>
+                                    </>
+                                )}
                             </div>
                         </div>
                     )}
