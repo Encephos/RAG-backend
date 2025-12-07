@@ -237,10 +237,31 @@ class RagService:
                     name = elem.findtext("name", default="Unknown Compound")
                     description = elem.findtext("description", default="")
                     
-                    # Taxonomy
+                    # Taxonomy - Build a hierarchy chain
                     taxonomy = elem.find("taxonomy")
-                    direct_parent = taxonomy.findtext("direct_parent") if taxonomy is not None else "Chemical Compound"
-                    kingdom = taxonomy.findtext("kingdom") if taxonomy is not None else "Organic compounds"
+                    taxonomy_map = {} # tag -> name
+                    if taxonomy is not None:
+                        for child in taxonomy:
+                            if child.text:
+                                taxonomy_map[child.tag] = child.text
+                                
+                    # Define order from most specific to most general
+                    # We will link Compound -> Level 1 -> Level 2 ...
+                    # Typical hierarchy keys in our XML (adjust based on actual data if known, assuming standard PubChem-like)
+                    hierarchy_keys = ["direct_parent", "sub_class", "class", "super_class", "kingdom"]
+                    
+                    # Filter valid levels found in this compound
+                    chain = []
+                    for key in hierarchy_keys:
+                        if key in taxonomy_map:
+                            chain.append({"name": taxonomy_map[key], "type": key.replace("_", " ").title()})
+                            
+                    # Fallback
+                    if not chain:
+                        direct_parent = "Chemical Compound"
+                        chain.append({"name": direct_parent, "type": "Chemical Class"})
+                    else:
+                        direct_parent = chain[0]["name"] # Used for vector doc
                     
                     # Properties (Just a few key ones)
                     formula = elem.findtext("chemical_formula", default="")
@@ -272,25 +293,35 @@ class RagService:
                         compound_id = await self.kg_service.add_entity_with_resolution(
                             name=name,
                             type="Chemical Compound",
-                            description=description[:500], # Trucate desc for KG
+                            description=description[:500],
                             collection_name=graph_col
                         )
                         
-                        # Entity: Class (Parent)
-                        class_id = await self.kg_service.add_entity_with_resolution(
-                            name=direct_parent,
-                            type="Chemical Class",
-                            description=f"Class of compounds belonging to {kingdom}",
-                            collection_name=graph_col
-                        )
+                        # Create Hierarchy Nodes and Edges
+                        # Previous Node starts as the Compound
+                        previous_node_id = compound_id
                         
-                        # Relation
-                        self.kg_service.add_relation(
-                            source_id=compound_id,
-                            target_id=class_id,
-                            relation_type="belongs_to",
-                            collection_name=graph_col
-                        )
+                        for level in chain:
+                            # Create Class Node
+                            class_id = await self.kg_service.add_entity_with_resolution(
+                                name=level["name"],
+                                type=level["type"], # e.g. "Direct Parent", "Class", "Kingdom"
+                                description=f"{level['type']} in chemical taxonomy",
+                                collection_name=graph_col
+                            )
+                            
+                            # Link Previous -> belongs_to -> Current
+                            # e.g. Alpha-Pinene -> belongs_to -> Pinene
+                            # e.g. Pinene -> belongs_to -> Monoterpene
+                            self.kg_service.add_relation(
+                                source_id=previous_node_id,
+                                target_id=class_id,
+                                relation_type="is_a", # Standard ontological hierarchy
+                                collection_name=graph_col
+                            )
+                            
+                            # Set current as previous for next iteration
+                            previous_node_id = class_id
                         
                     total_compounds += 1
                     if total_compounds % batch_size == 0:
@@ -306,3 +337,131 @@ class RagService:
 
         logger.info(f"Finished ingesting {total_compounds} compounds.")
         yield {"step": "complete", "message": f"Successfully ingested {total_compounds} compounds from XML.", "progress": 1.0}
+
+    async def ingest_strains_generator(self, file_path: str):
+        """
+        Ingest Cannabis Strains (Säule A/B).
+        Source: data/sources/all_strains_seedfinder.csv
+        Format: Anzahl;Name der Strain;Link;Breeder;Typ;...;Eltern 1;Eltern 2;
+        """
+        import csv
+        import asyncio
+        
+        logger.info(f"Starting Strain ingestion from {file_path}")
+        yield {"step": "start", "message": "Starting Strain ingestion...", "progress": 0.0}
+
+        target_collections = ["botanical", "master"] 
+        # Botanical -> botanical_entities
+        # Master -> rag_entities
+        
+        # We need to resolve the actual collection names
+        target_entity_collections = []
+        for alias in target_collections:
+             if alias == "master":
+                 target_entity_collections.append(settings.QDRANT_ENTITY_COLLECTION_NAME)
+             else:
+                 mapped = self.qdrant_service.entity_collections.get(alias)
+                 if mapped:
+                     target_entity_collections.append(mapped)
+
+        total_lines = 0
+        # First pass to count lines for progress (optional, or just partial read)
+        # encoding='utf-8-sig' handle BOM
+        try:
+            with open(file_path, 'r', encoding='latin-1') as f: # seedfinder often latin-1
+                total_lines = sum(1 for line in f) - 1
+        except:
+             total_lines = 35000 # Estimate
+             
+        processed = 0
+        batch_size = 20
+        
+        with open(file_path, 'r', encoding='latin-1', errors='replace') as f:
+            reader = csv.DictReader(f, delimiter=';')
+            
+            for row in reader:
+                try:
+                    name = row.get("Name der Strain", "").strip()
+                    if not name: continue
+                    
+                    breeder = row.get("Breeder", "Unknown Breeder").strip()
+                    strain_type = row.get("Typ", "Hybrid").strip() # mostly sativa, indica/sativa etc.
+                    parent1 = row.get("Eltern 1", "").strip()
+                    parent2 = row.get("Eltern 2", "").strip()
+                    
+                    # 1. Vector Document
+                    doc_text = f"Strain: {name}\nBreeder: {breeder}\nType: {strain_type}\nGenetics: {parent1} x {parent2}"
+                    vector = await self.embedding_service.embed_query(doc_text)
+                    metadata = {
+                        "source": "seedfinder_csv",
+                        "type": "strain",
+                        "name": name,
+                        "breeder": breeder,
+                        "strain_type": strain_type
+                    }
+                    
+                    for col in target_collections:
+                        self.qdrant_service.upsert(doc_text, vector, metadata, collection_alias=col)
+                        
+                    # 2. Knowledge Graph (Deduplicated via add_entity_with_resolution)
+                    for graph_col in target_entity_collections:
+                        # Strain Entity
+                        strain_id = await self.kg_service.add_entity_with_resolution(
+                            name=name,
+                            type="Cannabis Strain",
+                            description=f"{strain_type} strain by {breeder}",
+                            collection_name=graph_col
+                        )
+                        
+                        # Breeder Entity
+                        if breeder and breeder != "Unknown Breeder":
+                            breeder_id = await self.kg_service.add_entity_with_resolution(
+                                name=breeder,
+                                type="Breeder",
+                                description="Cannabis Breeder",
+                                collection_name=graph_col
+                            )
+                            # Strain -> bred_by -> Breeder
+                            self.kg_service.add_relation(strain_id, breeder_id, "bred_by", collection_name=graph_col)
+                        
+                        # Hierarchy (Säule A: Type)
+                        # Link to "Sativa", "Indica", "Hybrid" etc.
+                        if strain_type:
+                             # Clean up type (e.g., "mostly sativa" -> "Sativa Dominant")
+                             # Simple heuristic
+                             clean_type = "Hybrid"
+                             if "sativa" in strain_type.lower(): clean_type = "Sativa"
+                             if "indica" in strain_type.lower(): clean_type = "Indica"
+                             if "ruderalis" in strain_type.lower(): clean_type = "Ruderalis"
+                             
+                             type_id = await self.kg_service.add_entity_with_resolution(
+                                 name=clean_type,
+                                 type="Cannabis Type",
+                                 description=f"Genetic subspecies classification",
+                                 collection_name=graph_col
+                             )
+                             self.kg_service.add_relation(strain_id, type_id, "is_a", collection_name=graph_col)
+
+                        # Lineage (Säule B: Parents)
+                        for parent in [parent1, parent2]:
+                            if parent and parent.lower() != "unknown" and len(parent) > 1:
+                                parent_id = await self.kg_service.add_entity_with_resolution(
+                                    name=parent,
+                                    type="Cannabis Strain", # Potentially recursive if parent not in DB
+                                    description="Parent Strain",
+                                    collection_name=graph_col
+                                )
+                                # Strain -> has_parent -> Parent
+                                self.kg_service.add_relation(strain_id, parent_id, "has_parent", collection_name=graph_col)
+                                # Inverse: Parent -> parent_of -> Strain
+                                self.kg_service.add_relation(parent_id, strain_id, "parent_of", collection_name=graph_col)
+
+                    processed += 1
+                    if processed % batch_size == 0:
+                        yield {"step": "ingesting", "message": f"Ingested {processed}/{total_lines} strains...", "progress": processed / total_lines}
+                        
+                except Exception as e:
+                    logger.error(f"Error processing row {row}: {e}")
+                    continue
+                    
+        yield {"step": "complete", "message": f"Finished ingesting {processed} strains.", "progress": 1.0}

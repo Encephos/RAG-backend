@@ -207,6 +207,32 @@ async def ingest_compounds(
 
     return StreamingResponse(event_generator(), media_type="application/x-ndjson")
 
+@router.post("/ingest/strains")
+@limiter.limit("5/minute")
+async def ingest_strains(
+    request: Request,
+    rag_service: RagService = Depends(get_rag_service)
+):
+    """
+    Trigger ingestion of Cannabis Strains from local CSV file.
+    Default path: data/sources/all_strains_seedfinder.csv
+    Streams progress updates.
+    """
+    file_path = "data/sources/all_strains_seedfinder.csv"
+    path_obj = Path(file_path)
+    
+    if not path_obj.exists():
+        raise HTTPException(status_code=404, detail=f"Strains file not found at {file_path}")
+
+    async def event_generator():
+        try:
+            async for event in rag_service.ingest_strains_generator(file_path):
+                yield json.dumps(event) + "\n"
+        except Exception as e:
+            yield json.dumps({"step": "error", "message": f"Ingestion failed: {str(e)}"}) + "\n"
+
+    return StreamingResponse(event_generator(), media_type="application/x-ndjson")
+
 @router.post("/ingest/academic")
 @limiter.limit("5/minute")
 async def ingest_academic(

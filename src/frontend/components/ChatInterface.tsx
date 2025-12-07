@@ -482,21 +482,22 @@ export default function ChatInterface() {
                     </div>
                 </div>
 
-                {/* Graph Overlay */}
-                {graphQuery && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in cursor-pointer" onClick={() => setGraphQuery(null)}>
-                        <div className="w-full max-w-4xl max-h-[90vh] flex flex-col items-center" onClick={e => e.stopPropagation()}>
-                            <GraphView query={graphQuery} className="w-full" />
-                            <button onClick={() => setGraphQuery(null)} className="mt-4 px-6 py-2 bg-white rounded-full text-black font-medium hover:scale-105 transition-transform">
-                                Schließen
-                            </button>
-                        </div>
-                    </div>
-                )}
+
                 <div className="text-center mt-3">
                     <p className="text-xs text-gray-400">Nexus may display inaccurate info, including about people, so double-check its responses.</p>
                 </div>
             </div>
+            {/* Graph Overlay - Moved to root to avoid pointer-events issues */}
+            {graphQuery && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in cursor-pointer" onClick={() => setGraphQuery(null)}>
+                    <div className="w-full max-w-4xl max-h-[90vh] flex flex-col items-center" onClick={e => e.stopPropagation()}>
+                        <GraphView query={graphQuery} className="w-full" />
+                        <button onClick={() => setGraphQuery(null)} className="mt-4 px-6 py-2 bg-white rounded-full text-black font-medium hover:scale-105 transition-transform">
+                            Schließen
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
