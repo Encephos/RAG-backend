@@ -6,7 +6,7 @@ import { clsx } from 'clsx';
 
 type IngestItem = {
     id: string;
-    type: 'text' | 'file' | 'url' | 'database' | 'academic';
+    type: 'text' | 'file' | 'url' | 'database' | 'academic' | 'snapshot';
     content: string | File;
     status: 'pending' | 'processing' | 'completed' | 'error';
     message?: string;
@@ -17,7 +17,7 @@ type IngestItem = {
 };
 
 export default function IngestForm() {
-    const [activeTab, setActiveTab] = useState<'text' | 'file' | 'url' | 'database' | 'academic'>('text');
+    const [activeTab, setActiveTab] = useState<'text' | 'file' | 'url' | 'database' | 'academic' | 'snapshot'>('text');
     const [queue, setQueue] = useState<IngestItem[]>([]);
     const [processing, setProcessing] = useState(false);
 
@@ -105,6 +105,17 @@ export default function IngestForm() {
                 metadata: { category: academicCategory, limit: 3 }
             });
             setAcademicQuery('');
+        } else if (activeTab === 'snapshot' && files) {
+            Array.from(files).forEach(file => {
+                newItems.push({
+                    id: crypto.randomUUID(),
+                    type: 'snapshot',
+                    content: file,
+                    status: 'pending',
+                    collections, // ignored by backend for snapshots
+                    message: 'Ready for upload'
+                });
+            });
         }
 
         setQueue(prev => [...prev, ...newItems]);
@@ -186,6 +197,13 @@ export default function IngestForm() {
                 collections: item.collections
             });
             headers['Content-Type'] = 'application/json';
+        } else if (item.type === 'snapshot') {
+            endpoint = '/ingest/snapshot';
+            const formData = new FormData();
+            formData.append('file', item.content as File);
+            body = formData;
+            // Content-Type header not set manually for FormData
+            delete headers['Content-Type'];
         }
 
         const response = await fetch(`${BASE_URL}${endpoint}`, {
@@ -264,6 +282,18 @@ export default function IngestForm() {
                             <span className="capitalize">{tab}</span>
                         </button>
                     ))}
+                    <button
+                        onClick={() => setActiveTab('snapshot')}
+                        className={clsx(
+                            'px-4 py-2 rounded-xl text-sm font-medium transition-all flex items-center gap-2',
+                            activeTab === 'snapshot'
+                                ? 'bg-white text-gray-900 shadow-sm'
+                                : 'text-gray-500 hover:text-gray-700'
+                        )}
+                    >
+                        <RefreshCw className="w-4 h-4" />
+                        Snapshots
+                    </button>
                 </div>
 
                 {/* Tab Content */}
@@ -405,6 +435,24 @@ export default function IngestForm() {
                         </div>
                     )}
 
+                    {activeTab === 'snapshot' && (
+                        <div className="border-2 border-dashed border-red-200 hover:border-red-400 rounded-2xl p-8 text-center transition-all bg-red-50/50 hover:bg-red-50/10 cursor-pointer">
+                            <input
+                                type="file"
+                                onChange={(e) => addToQueue(e.target.files)}
+                                className="hidden"
+                                id="snapshot-upload"
+                                multiple
+                                accept=".snapshot"
+                            />
+                            <label htmlFor="snapshot-upload" className="cursor-pointer flex flex-col items-center gap-2">
+                                <Database className="w-8 h-8 text-red-400" />
+                                <span className="text-sm font-medium text-gray-700">Snapshots auswählen</span>
+                                <span className="text-xs text-gray-400">Dateinamen müssen 'botanical', 'studies' etc. enthalten</span>
+                            </label>
+                        </div>
+                    )}
+
                     {/* Collection & Add Button */}
                     <div className="flex flex-col gap-4">
                         <div className="grid grid-cols-2 gap-2">
@@ -427,7 +475,7 @@ export default function IngestForm() {
                             ))}
                         </div>
 
-                        {(activeTab !== 'file') && (
+                        {(activeTab !== 'file' && activeTab !== 'snapshot') && (
                             <button
                                 onClick={() => addToQueue()}
                                 disabled={!((activeTab === 'text' && textInput) || (activeTab === 'url' && urlInput) || activeTab === 'database' || (activeTab === 'academic' && academicQuery))}
