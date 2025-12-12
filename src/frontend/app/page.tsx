@@ -5,9 +5,10 @@ import ChatInterface from '../components/ChatInterface';
 import IngestForm from '../components/IngestForm';
 import Sidebar from '../components/Sidebar';
 import GrowVision from '../components/GrowVision';
+import GenealogyExplorer from '../components/GenealogyExplorer';
 
 export default function Home() {
-  const [activeView, setActiveView] = useState<'chat' | 'ingest' | 'vision'>('chat');
+  const [activeView, setActiveView] = useState<'chat' | 'ingest' | 'vision' | 'genealogy'>('chat');
 
   return (
     <div className="flex h-screen w-full bg-white text-gray-900 font-sans selection:bg-blue-100 selection:text-blue-900">
@@ -34,6 +35,10 @@ export default function Home() {
 
         {activeView === 'vision' && (
           <GrowVision />
+        )}
+
+        {activeView === 'genealogy' && (
+          <GenealogyExplorer />
         )}
       </main>
     </div>

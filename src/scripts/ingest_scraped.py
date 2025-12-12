@@ -165,8 +165,14 @@ class ScrapedDataIngestor:
         
         # We process in small chunks to avoid memory/rate issues
         chunk_size = 50
+        total_batches = (len(data) // chunk_size) + 1
+        
         for i in range(0, len(data), chunk_size):
              batch = data[i:i + chunk_size]
+             current_batch = (i // chunk_size) + 1
+             
+             if current_batch % 10 == 0:
+                 logger.info(f"[{filename}] Processing batch {current_batch}/{total_batches} ({i}/{len(data)} items)...")
              
              # Prepare Entity Points (Graph)
              # Entities collection needs: id, vector (placeholder or named vector), payload

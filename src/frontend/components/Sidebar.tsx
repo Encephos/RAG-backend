@@ -1,10 +1,10 @@
 'use client';
 
 import { clsx } from 'clsx';
-import { MessageSquare, Upload, Menu, Settings, ScanEye } from 'lucide-react';
+import { MessageSquare, Upload, Menu, Settings, ScanEye, GitGraph } from 'lucide-react';
 import { useState } from 'react';
 
-type View = 'chat' | 'ingest' | 'vision';
+type View = 'chat' | 'ingest' | 'vision' | 'genealogy';
 
 interface SidebarProps {
     activeView: View;
@@ -54,6 +54,13 @@ export default function Sidebar({ activeView, onViewChange }: SidebarProps) {
                     isActive={activeView === 'vision'}
                     isCollapsed={collapsed}
                     onClick={() => onViewChange('vision')}
+                />
+                <NavItem
+                    icon={GitGraph}
+                    label="Genealogy Explorer"
+                    isActive={activeView === 'genealogy'}
+                    isCollapsed={collapsed}
+                    onClick={() => onViewChange('genealogy')}
                 />
             </nav>
 

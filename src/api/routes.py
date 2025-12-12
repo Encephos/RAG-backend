@@ -447,6 +447,23 @@ async def visualize_graph(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/graph/lineage")
+async def get_lineage_graph(
+    strain: str,
+    depth: int = 2,
+    direction: str = "parents", # 'parents' or 'children' (future)
+    kg_service: KnowledgeGraphService = Depends(get_kg_service)
+):
+    """
+    Get genealogy graph for a specific strain.
+    """
+    try:
+        # We can map direction to different logic if needed later
+        data = await kg_service.get_lineage(strain, depth=depth, collection_name="botanical_entities")
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/stats")
 async def get_stats(
     rag_service: RagService = Depends(get_rag_service)

@@ -208,6 +208,89 @@ class KnowledgeGraphService:
             "links": links
         }
 
+    async def get_lineage(self, strain_name: str, depth: int = 2, collection_name: str = None) -> Dict[str, Any]:
+        """
+        Retrieves the genealogy/lineage of a strain.
+        Traverses 'bred_from', 'parent_of', 'hybrid_of' relations.
+        """
+        target_collection = collection_name or "botanical_entities" # Default to botanical graph
+        
+        # 1. Find Start Node
+        # We search by name vector essentially to find the exact node ID
+        query_vector = await self.embedder.embed_query(strain_name)
+        start_points = self.qdrant.search_entities(query_vector, limit=1, score_threshold=0.85, collection_name=target_collection)
+        
+        if not start_points:
+            return {"nodes": [], "links": []}
+            
+        start_node_id = start_points[0].id
+        start_payload = start_points[0].payload
+        
+        nodes = {}
+        links = []
+        visited = set()
+        queue = [(start_node_id, 0)] # (id, current_depth)
+        
+        nodes[start_node_id] = {
+            "id": start_node_id,
+            "label": start_payload.get("name"),
+            "group": "Target",
+            "val": 20
+        }
+        visited.add(start_node_id)
+        
+        # 2. BFS Traversal
+        while queue:
+            current_id, current_depth = queue.pop(0)
+            
+            if current_depth >= depth:
+                continue
+                
+            # Fetch current node details if not already (for start node we have it, for others might need fetch)
+            # Actually we need payload to see relations
+            if current_id == start_node_id:
+                current_payload = start_payload
+            else:
+                current_payload = self.qdrant.get_entity(current_id, collection_name=target_collection) or {}
+                
+            relations = current_payload.get("relations", [])
+            
+            for rel in relations:
+                target_id = rel.get("target_id")
+                rel_type = rel.get("type", "").lower()
+                
+                # Filter for lineage-relevant relations
+                if rel_type in ["bred_from", "parent_of", "hybrid_of", "child_of", "cross_of"]:
+                     
+                     # Add Logic: If bred_from -> target is Parent.
+                     # We want to show the tree.
+                     
+                     if target_id not in visited:
+                         visited.add(target_id)
+                         queue.append((target_id, current_depth + 1))
+                         
+                         # Fetch node info for visualisation
+                         target_node_payload = self.qdrant.get_entity(target_id, collection_name=target_collection)
+                         if target_node_payload:
+                             nodes[target_id] = {
+                                 "id": target_id,
+                                 "label": target_node_payload.get("name"),
+                                 "group": "Ancestor" if rel_type == "bred_from" else "Relative",
+                                 "val": 10
+                             }
+                     
+                     # Add Link
+                     links.append({
+                         "source": current_id,
+                         "target": target_id,
+                         "label": rel_type
+                     })
+
+        return {
+            "nodes": list(nodes.values()),
+            "links": links
+        }
+
     def clear(self) -> None:
         """Clear is not easily supported in persistent vector store without dropping collection."""
         pass
