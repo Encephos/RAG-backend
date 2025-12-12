@@ -35,8 +35,19 @@ export default function GenealogyExplorer() {
         setError(null);
         setData({ nodes: [], links: [] }); // Clear prev
 
+        // Default to Prod URL if env is missing to ensure it works on Vercel without config
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://95.216.204.29.sslip.io/api/v1';
+        console.log("GenealogyExplorer: Fetching from", apiUrl);
+
+        const res = await fetch(`${apiUrl}/graph/lineage?strain=${encodeURIComponent(searchTerm)}`);
+        if (!res.ok) throw new Error("Failed to fetch lineage");
+
+        const graphData = await res.json();
         try {
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+            // Default to Prod URL if env is missing to ensure it works on Vercel without config
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://95.216.204.29.sslip.io/api/v1';
+            console.log("GenealogyExplorer: Fetching from", apiUrl);
+
             const res = await fetch(`${apiUrl}/graph/lineage?strain=${encodeURIComponent(searchTerm)}`);
             if (!res.ok) throw new Error("Failed to fetch lineage");
 
