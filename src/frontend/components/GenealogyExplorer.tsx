@@ -82,7 +82,7 @@ export default function GenealogyExplorer() {
     return (
         <div className="flex flex-col h-full bg-white relative">
             {/* Toolbar / Search */}
-            <div className="absolute top-4 left-4 z-10 bg-white/90 backdrop-blur shadow-lg rounded-xl p-4 w-96 flex flex-col gap-4 border border-gray-100">
+            <div className="absolute top-16 md:top-4 left-4 right-4 md:right-auto z-10 bg-white/90 backdrop-blur shadow-lg rounded-xl p-4 md:w-96 flex flex-col gap-4 border border-gray-100">
                 <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
                     <GitGraph className="text-emerald-600 w-5 h-5" />
                     <h2 className="font-semibold text-gray-800">Genealogy Explorer</h2>
@@ -92,11 +92,11 @@ export default function GenealogyExplorer() {
                     <input
                         type="text"
                         placeholder="Search Strain (e.g., White Widow)..."
-                        className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+                        className="w-full pl-10 pr-4 py-3 md:py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all text-base"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
-                    <Search className="absolute left-3 top-2.5 text-gray-400 w-4 h-4" />
+                    <Search className="absolute left-3 top-3.5 md:top-2.5 text-gray-400 w-4 h-4" />
                 </form>
 
                 {error && (
@@ -122,13 +122,13 @@ export default function GenealogyExplorer() {
 
             {/* Configs (Zoom etc) - Floating Bottom Right */}
             <div className="absolute bottom-6 right-6 z-10 flex flex-col gap-2">
-                <button onClick={() => graphRef.current?.zoomIn()} className="p-3 bg-white shadow-md rounded-full hover:bg-gray-50 text-gray-600"><ZoomIn className="w-5 h-5" /></button>
-                <button onClick={() => graphRef.current?.zoomOut()} className="p-3 bg-white shadow-md rounded-full hover:bg-gray-50 text-gray-600"><ZoomOut className="w-5 h-5" /></button>
-                <button onClick={() => graphRef.current?.zoomToFit(400)} className="p-3 bg-white shadow-md rounded-full hover:bg-gray-50 text-gray-600"><Maximize className="w-5 h-5" /></button>
+                <button onClick={() => graphRef.current?.zoomIn()} className="p-3 md:p-3 p-4 bg-white shadow-md rounded-full hover:bg-gray-50 text-gray-600 active:scale-95 transition-transform"><ZoomIn className="w-6 h-6 md:w-5 md:h-5" /></button>
+                <button onClick={() => graphRef.current?.zoomOut()} className="p-3 md:p-3 p-4 bg-white shadow-md rounded-full hover:bg-gray-50 text-gray-600 active:scale-95 transition-transform"><ZoomOut className="w-6 h-6 md:w-5 md:h-5" /></button>
+                <button onClick={() => graphRef.current?.zoomToFit(400)} className="p-3 md:p-3 p-4 bg-white shadow-md rounded-full hover:bg-gray-50 text-gray-600 active:scale-95 transition-transform"><Maximize className="w-6 h-6 md:w-5 md:h-5" /></button>
             </div>
 
             {/* Main Graph Canvas */}
-            <div className="flex-1 overflow-hidden bg-slate-50 cursor-move">
+            <div className="flex-1 overflow-hidden bg-slate-50 cursor-move touch-none">
                 {loading && (
                     <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/50 backdrop-blur-sm">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
