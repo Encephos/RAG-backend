@@ -36,7 +36,7 @@ export default function GenealogyExplorer() {
         setData({ nodes: [], links: [] }); // Clear prev
 
         try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'}/graph/lineage?strain=${encodeURIComponent(searchTerm)}`);
+            const res = await fetch(`/api/v1/graph/lineage?strain=${encodeURIComponent(searchTerm)}`);
             if (!res.ok) throw new Error("Failed to fetch lineage");
 
             const graphData = await res.json();
