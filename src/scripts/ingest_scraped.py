@@ -21,7 +21,7 @@ except ImportError:
     logger.error("Could not import QdrantService. Run this script from project root.")
     exit(1)
 
-DATA_DIR = "data/sources/scrape"
+DATA_DIR = "scrape_data/scrape"
 
 class ScrapedDataIngestor:
     def __init__(self):
