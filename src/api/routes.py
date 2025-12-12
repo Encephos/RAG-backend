@@ -350,7 +350,39 @@ async def ingest_academic(
         except Exception as e:
             yield json.dumps({"step": "error", "message": str(e)}) + "\n"
 
+
+@router.post("/ingest/snapshot")
+@limiter.limit("5/minute")
+async def ingest_snapshot(
+    request: Request,
+    file: UploadFile = File(...),
+    rag_service: RagService = Depends(get_rag_service)
+):
+    """
+    Upload and recover a Qdrant snapshot.
+    Collection is auto-detected from filename.
+    """
+    async def event_generator():
+        try:
+            filename = file.filename or "snapshot.snapshot"
+            yield json.dumps({"step": "upload", "message": f"Reading snapshot '{filename}'...", "progress": 0.0}) + "\n"
+            
+            # Read file into memory (Warning: High memory usage for huge snapshots)
+            # For purely streaming proxy, we'd need more complex httpx streaming
+            content = await file.read()
+            
+            yield json.dumps({"step": "restoring", "message": f"Uploading to Qdrant ({len(content) / 1024 / 1024:.1f} MB)...", "progress": 0.3}) + "\n"
+            
+            target_col = await rag_service.qdrant_service.recover_snapshot_from_file(content, filename)
+            
+            yield json.dumps({"step": "complete", "message": f"Successfully restored to '{target_col}'!", "progress": 1.0}) + "\n"
+            
+        except Exception as e:
+            logger.error(f"Snapshot restore failed: {e}")
+            yield json.dumps({"step": "error", "message": str(e)}) + "\n"
+
     return StreamingResponse(event_generator(), media_type="application/x-ndjson")
+
 
 from src.services.council_service import CouncilService
 

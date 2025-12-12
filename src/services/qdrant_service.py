@@ -191,3 +191,41 @@ class QdrantService:
             "total_points": master_count,
             "details": {"master": master_count}
         }
+
+    async def recover_snapshot_from_file(self, file_content: bytes, filename: str):
+        """
+        Recover a collection from a snapshot file.
+        Attempts to guess the collection name from the filename.
+        """
+        # 1. Guess Collection Name
+        target_collection = "master_collection" # Default
+        
+        # Check against known aliases first
+        for alias, col_name in self.collections.items():
+            if alias in filename.lower():
+                target_collection = col_name
+                break
+            # Also check if the full collection name is in filename
+            if col_name in filename:
+                target_collection = col_name
+                break
+                
+        logger.info(f"Recovering snapshot '{filename}' into collection '{target_collection}'")
+        
+        # 2. Use requests (sync) or httpx (async) to upload
+        # Qdrant client doesn't expose a stream upload for snapshots easily, 
+        # so we use the raw HTTP API.
+        import httpx
+        
+        url = f"http://{settings.QDRANT_HOST}:{settings.QDRANT_PORT}/collections/{target_collection}/snapshots/upload"
+        
+        # We need to send it as multipart/form-data
+        files = {'snapshot': (filename, file_content)}
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, files=files, timeout=300.0) # 5 min timeout for big files
+            
+            if response.status_code != 200:
+                raise Exception(f"Qdrant Snapshot Upload Failed: {response.text}")
+                
+        return target_collection

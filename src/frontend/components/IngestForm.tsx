@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { Upload, Link, FileText, Loader2, CheckCircle, AlertCircle, RefreshCw, X, Play, Clock, Database, GraduationCap } from 'lucide-react';
 import { clsx } from 'clsx';
 
 type IngestItem = {
