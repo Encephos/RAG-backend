@@ -179,35 +179,38 @@ class ScrapedDataIngestor:
              for item in batch:
                  await self._upsert_item(item)
     
+    def _extract_parents(self, text: str) -> List[str]:
+        """Simple heuristic to extract parents from text."""
+        if not text: return []
+        import re
+        parents = []
+        
+        # Pattern: "cross between X and Y"
+        match = re.search(r"cross between\s+([A-Z0-9][a-zA-Z0-9\s\-\#]+?)\s+and\s+([A-Z0-9][a-zA-Z0-9\s\-\#]+)", text, re.IGNORECASE)
+        if match:
+            parents.extend([m.strip() for m in match.groups()])
+            
+        # Pattern: "bred from X"
+        match_bred = re.search(r"bred from\s+([A-Z0-9][a-zA-Z0-9\s\-\#]+)", text, re.IGNORECASE)
+        if match_bred:
+             parents.append(match_bred.group(1).strip())
+
+        return [p for p in parents if len(p) > 2 and len(p) < 40]
+
     async def _upsert_item(self, item: Dict[str, Any]):
         name = item.get("name")
         if not name or len(name) < 2: 
             return
 
-        # 1. ENTITY (Graph Node) -> botanical_entities
-        # ID is deterministic based on name
+        # 1. ENTITY (Graph Node)
         entity_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, name))
         
-        # Create a dummy vector for entity if no embedding model used here yet
-        # Or ideally, we should use RagService to get embedding.
-        # For this script simplicity, we skip embedding generation and just push payload 
-        # BUT Qdrant needs a vector. 
-        # Let's rely on QdrantService behavior or generate a zero vector/random for now if allowed, 
-        # OR better: use the RagService to embed name.
-        
-        # Actually, let's use the description for Knowledge collection text.
         text_content = f"Strain: {name}\n"
         for k, v in item.items():
             if v and k not in ['name', 'source_file']:
                 text_content += f"{k.capitalize()}: {v}\n"
         
-        # We need embeddings. Let's use fastembed logic if possible, 
-        # or just import the global RagService if initialized. 
-        # Initializing RagService is heavier but correct.
-        
-        # For simplicity in this standalone script, let's assume we can use QdrantService to upsert
-        # but we need vectors. 
-        # Let's instantiate the embedding model locally.
+        # Embeddings
         try:
              from fastembed import TextEmbedding
              if not hasattr(self, 'model'):
@@ -216,20 +219,16 @@ class ScrapedDataIngestor:
              logger.error("Fastembed not found.")
              return
 
-        # Generate Vector
-        # We embed the entire text content for Knowledge
         embeddings = list(self.model.embed([text_content]))
         vector = [float(x) for x in embeddings[0]]
 
-        # Upsert to Knowledge (Botanical)
+        # Upsert Knowledge
         self.qdrant.upsert(
             text=text_content,
             vector=vector,
             metadata={"source": item.get('source_file'), "type": "scraped_data", "strain": name},
             collection_alias="botanical"
         )
-        
-        # Upsert to Knowledge (Master) - Requested by User
         self.qdrant.upsert(
             text=text_content,
             vector=vector,
@@ -237,25 +236,43 @@ class ScrapedDataIngestor:
             collection_alias="master"
         )
         
-        # Upsert to Entities (Botanical)
-        # We embed just the Name for the Entity Vector usually, or same content.
-        # Let's use name embedding for entity lookup
+        # 2. RELATIONS (Edges)
+        # Try to find parents in description or explicit fields
+        parents = self._extract_parents(item.get("description", ""))
+        
+        # If 'lineage' key exists in item (from CSV), use it
+        if item.get("lineage"):
+             parents.extend([p.strip() for p in item.get("lineage").split(",") if p.strip()])
+             
+        relations = []
+        for parent_name in set(parents):
+            if parent_name.lower() == name.lower(): continue # Self-ref loop check
+            
+            parent_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, parent_name))
+            relations.append({
+                "type": "bred_from",
+                "target_id": parent_id,
+                "target_label": parent_name # Store label to avoid fetching target just for name
+            })
+
+        # Upsert Entity with Relations
         name_emb = list(self.model.embed([name]))[0]
         name_vector = [float(x) for x in name_emb]
         
+        payload = {**item, "entity_type": "strain", "label": name, "relations": relations}
+        
         self.qdrant.upsert_entity(
             entity_id=entity_id,
             vector=name_vector,
-            payload={**item, "entity_type": "strain", "label": name},
+            payload=payload,
             collection_name="botanical_entities"
         )
         
-        # Also upsert to Master Entities for global graph
         self.qdrant.upsert_entity(
             entity_id=entity_id,
             vector=name_vector,
-            payload={**item, "entity_type": "strain", "label": name},
-            collection_name=settings.QDRANT_ENTITY_COLLECTION_NAME # rag_entities
+            payload=payload,
+            collection_name=settings.QDRANT_ENTITY_COLLECTION_NAME 
         )
 
 if __name__ == "__main__":
