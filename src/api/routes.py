@@ -12,6 +12,11 @@ from src.models.schemas import (
     UrlIngestRequest, AcademicIngestRequest
 )
 from src.core.limiter import limiter
+import logging
+
+# Setup Logger
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("nexus.api")
 
 router = APIRouter()
 
@@ -127,13 +132,18 @@ async def ingest_file(
             source_url = f"http://localhost:8000/sources/{safe_filename}"
             parse_metadata["source_url"] = source_url
             
+            logger.info(f"[{safe_filename}] Parsed successfully. Text length: {len(text)}. Metadata: {parse_metadata}")
+
             chunks = document_service.chunk_text(text, parse_metadata)
             full_text = "\n\n".join([c.text for c in chunks])
             
-            async for event in rag_service.ingest_document_generator(full_text, chunks, target_collections=target_cols):
+            logger.info(f"[{safe_filename}] Created {len(chunks)} chunks. Starting RAG ingestion...")
+
+            async for event in rag_service.ingest_document_generator(full_text, chunks, target_collections=target_cols, source_name=safe_filename):
                 yield json.dumps(event) + "\n"
                 
         except Exception as e:
+            logger.error(f"[{safe_filename}] Ingestion failed: {e}")
             yield json.dumps({"step": "error", "message": str(e)}) + "\n"
 
     return StreamingResponse(event_generator(), media_type="application/x-ndjson")
@@ -173,10 +183,15 @@ async def ingest_url(
             
             full_text = "\n\n---PAGE BREAK---\n\n".join(combined_text)
             
-            async for event in rag_service.ingest_document_generator(full_text, all_chunks, target_collections=target_cols):
+            full_text = "\n\n---PAGE BREAK---\n\n".join(combined_text)
+            
+            logger.info(f"[{url_request.url}] Starting RAG ingestion for {len(all_chunks)} chunks...")
+            
+            async for event in rag_service.ingest_document_generator(full_text, all_chunks, target_collections=target_cols, source_name=url_request.url):
                 yield json.dumps(event) + "\n"
                 
         except Exception as e:
+            logger.error(f"[{url_request.url}] Ingestion failed: {e}")
             yield json.dumps({"step": "error", "message": str(e)}) + "\n"
 
     return StreamingResponse(event_generator(), media_type="application/x-ndjson")
@@ -320,8 +335,10 @@ async def ingest_academic(
                     # For now, let's keep it simple: re-chunking is fine or passing explicit chunks.
                     chunks = document_service.chunk_text(full_text, base_metadata)
                     
-                    async for event in rag_service.ingest_document_generator(full_text, chunks, target_collections=target_cols):
+                    async for event in rag_service.ingest_document_generator(full_text, chunks, target_collections=target_cols, source_name=doc.get("title")):
                          pass
+                    
+                    logger.info(f"[{doc.get('title')}] Ingestion complete.")
                     
                     processed_count += 1
                     
@@ -399,10 +416,14 @@ async def visualize_graph(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/stats")
-async def get_stats():
+async def get_stats(
+    rag_service: RagService = Depends(get_rag_service)
+):
+    stats = await rag_service.qdrant_service.get_total_points()
     return {
-        "version": "0.5.0",
-        "total_points": 42069 # Placeholder, ideally fetch from vector DB count
+        "version": "0.5.1",
+        "total_points": stats["total_points"],
+        "details": stats["details"]
     }
 
 import base64

@@ -175,12 +175,19 @@ class QdrantService:
             points=[entity_id]
         )
 
-    def count_points(self, collection_alias: str = "master") -> int:
-        """Count total points in a collection."""
-        collection_name = self.collections.get(collection_alias, self.collections["master"])
+    async def get_total_points(self) -> dict:
+        """
+        Count total points.
+        Returns count of 'master_collection' as the primary metric.
+        """
         try:
-            count_result = self.client.count(collection_name=collection_name)
-            return count_result.count
+             # We use the 'master' vector collection as the reference for "Total Knowledge Items"
+             master_count = self.client.count(collection_name=self.collections["master"]).count
         except Exception as e:
-            logger.error(f"Error counting points in {collection_name}: {e}")
-            return 0
+             logger.warning(f"Failed to count master collection: {e}")
+             master_count = 0
+             
+        return {
+            "total_points": master_count,
+            "details": {"master": master_count}
+        }

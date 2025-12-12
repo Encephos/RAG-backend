@@ -34,12 +34,13 @@ class RagService:
         async for _ in self.ingest_document_generator(full_text, chunks, target_collections):
             pass
 
-    async def ingest_document_generator(self, full_text: str, chunks: List[Any], target_collections: List[str] = None):
+    async def ingest_document_generator(self, full_text: str, chunks: List[Any], target_collections: List[str] = None, source_name: str = "Unknown Source"):
         """
         Generator that yields progress updates during ingestion.
         Yields: Dict[str, Any] with keys 'step', 'message', 'progress'
         """
-        logger.info(f"Starting document ingestion. Size: {len(full_text)} chars, Chunks: {len(chunks)}")
+        log_prefix = f"[{source_name}]"
+        logger.info(f"{log_prefix} Starting ingestion. Size: {len(full_text)} chars, Chunks: {len(chunks)}")
         
         # Ensure target_collections is a list and contains 'master'
         if not target_collections:
@@ -51,7 +52,7 @@ class RagService:
         if "master" not in target_collections:
             target_collections.append("master")
             
-        logger.info(f"Ingesting into collections: {target_collections}")
+        logger.info(f"{log_prefix} Targets: {target_collections}")
         
         yield {"step": "start", "message": "Starting ingestion...", "progress": 0.05}
         
@@ -72,7 +73,7 @@ class RagService:
                 progress = 0.05 + (0.25 * ((i + 1) / total_chunks)) # Max 30% for vector indexing
                 yield {"step": "indexing", "message": f"Indexing chunk {i+1}/{total_chunks}...", "progress": progress}
                 
-        logger.debug(f"Upserted {total_chunks} chunks to Qdrant collections: {target_collections}.")
+        logger.debug(f"{log_prefix} Upserted {total_chunks} chunks to Qdrant collections: {target_collections}.")
         yield {"step": "indexing_complete", "message": "Vector indexing complete", "progress": 0.30}
 
         # 2. Knowledge Graph Construction
@@ -84,7 +85,7 @@ class RagService:
             yield {"step": "extraction", "message": f"Extracting entities from block {i+1}/{total_blocks} (this may take a while)...", "progress": 0.30 + (0.60 * (i / total_blocks))}
             
             extraction = await self.llm_service.extract_entities(block)
-            logger.debug(f"Extracted {len(extraction.entities)} entities from block.")
+            logger.info(f"{log_prefix} Block {i+1}/{total_blocks}: Extracted {len(extraction.entities)} entities.")
             
             # Identify all target entity collections (Always Master + mapped from target_collections)
             # target_collections contains alias names like 'botanical', 'studies'
@@ -131,7 +132,7 @@ class RagService:
             # Update progress after block is done
             yield {"step": "extraction_block_done", "message": f"Finished block {i+1}/{total_blocks}", "progress": 0.30 + (0.60 * ((i + 1) / total_blocks))}
 
-        logger.info("Document ingestion complete.")
+        logger.info(f"{log_prefix} Document ingestion complete.")
         yield {"step": "complete", "message": "Ingestion complete!", "progress": 1.0}
 
     async def query(self, query: str, limit: int = 5) -> Dict[str, Any]:

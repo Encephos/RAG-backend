@@ -13,3 +13,7 @@ Pillow>=10.0.0
 transformers>=4.36.0
 torch>=2.0.0
 torchvision>=0.15.0
+pymupdf>=1.23.0
+slowapi>=0.1.9
+habanero>=1.2.3
+tenacity>=8.2.0
