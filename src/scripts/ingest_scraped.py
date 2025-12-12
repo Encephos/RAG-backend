@@ -11,6 +11,11 @@ import uuid
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Add project root to sys.path
+import sys
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+sys.path.append(project_root)
+
 # Mock settings/service for standalone execution if needed, 
 # or import from app if available.
 try:
