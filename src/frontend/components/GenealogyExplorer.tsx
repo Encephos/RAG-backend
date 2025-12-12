@@ -35,30 +35,34 @@ export default function GenealogyExplorer() {
         setError(null);
         setData({ nodes: [], links: [] }); // Clear prev
 
-        // Default to Prod URL if env is missing to ensure it works on Vercel without config
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://95.216.204.29.sslip.io/api/v1';
-        console.log("GenealogyExplorer: Fetching from", apiUrl);
-
-        const res = await fetch(`${apiUrl}/graph/lineage?strain=${encodeURIComponent(searchTerm)}`);
-        if (!res.ok) throw new Error("Failed to fetch lineage");
-
-        const graphData = await res.json();
         try {
             // Default to Prod URL if env is missing to ensure it works on Vercel without config
             const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://95.216.204.29.sslip.io/api/v1';
+            const apiKey = process.env.NEXT_PUBLIC_BACKEND_API_KEY || 'secret-api-key';
             console.log("GenealogyExplorer: Fetching from", apiUrl);
 
-            const res = await fetch(`${apiUrl}/graph/lineage?strain=${encodeURIComponent(searchTerm)}`);
-            if (!res.ok) throw new Error("Failed to fetch lineage");
+            const res = await fetch(`${apiUrl}/graph/lineage?strain=${encodeURIComponent(searchTerm)}`, {
+                headers: {
+                    'x-api-key': apiKey,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!res.ok) {
+                const errorText = await res.text();
+                throw new Error(`Failed to fetch lineage (${res.status}): ${errorText}`);
+            }
 
             const graphData = await res.json();
 
+            // Try/Catch block duplication removal - simply use one logic flow
             if (graphData.nodes.length === 0) {
                 setError(`No lineage found for "${searchTerm}". Try another strain.`);
             } else {
                 setData(graphData);
             }
         } catch (err: any) {
+            console.error("Genealogy Fetch Error:", err);
             setError(err.message || "An error occurred");
         } finally {
             setLoading(false);
