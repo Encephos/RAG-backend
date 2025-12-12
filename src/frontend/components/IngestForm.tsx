@@ -523,7 +523,7 @@ export default function IngestForm() {
                                         {item.status === 'error' && <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />}
 
                                         <span className="text-sm font-medium text-gray-700 truncate">
-                                            {item.type === 'file' ? (item.content as File).name : item.content as string}
+                                            {(item.type === 'file' || item.type === 'snapshot') ? (item.content as File).name : item.content as string}
                                         </span>
                                     </div>
                                     <button onClick={() => removeFromQueue(item.id)} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
