@@ -197,19 +197,13 @@ class QdrantService:
         Recover a collection from a snapshot file.
         Attempts to guess the collection name from the filename.
         """
-        # 1. Guess Collection Name
-        target_collection = "master_collection" # Default
-        
-        # Check against known aliases first
-        for alias, col_name in self.collections.items():
-            if alias in filename.lower():
-                target_collection = col_name
-                break
-            # Also check if the full collection name is in filename
-            if col_name in filename:
-                target_collection = col_name
-                break
-                
+        # 1. Use Filename as Collection Name (User Request)
+        # e.g., "botanical_entities.snapshot" -> "botanical_entities"
+        target_collection = filename
+        for ext in ['.snapshot', '.tar', '.zip']:
+             if target_collection.endswith(ext):
+                 target_collection = target_collection[:-len(ext)]
+                 
         logger.info(f"Recovering snapshot '{filename}' into collection '{target_collection}'")
         
         # 2. Use requests (sync) or httpx (async) to upload
