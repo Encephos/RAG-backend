@@ -158,6 +158,34 @@ class ScrapedDataIngestor:
                         "source_file": filename
                     })
 
+        elif "strainmaster.csv" in filename:
+             with open(filepath, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    # Helper to aggregate numbered columns
+                    def collect_columns(prefix, max_count=10):
+                        values = []
+                        for i in range(1, max_count + 1):
+                            val = row.get(f"{prefix}_{i}")
+                            if val and val.strip():
+                                values.append(val.strip())
+                        return ", ".join(values)
+
+                    normalized_data.append({
+                        "name": row.get("Name"),
+                        "description": row.get("Description"),
+                        "type": row.get("strain_type"),
+                        "cannabinoids": collect_columns("cannabinoids", 6),
+                        "aromas": collect_columns("aromas", 10),
+                        "flavors": collect_columns("flavors", 10),
+                        "terpenes": collect_columns("terpene", 8),
+                        "effects": collect_columns("effects", 7),
+                        "negative_effects": collect_columns("negative_effects", 10),
+                        "medical": collect_columns("medical_application", 5),
+                        "growing": row.get("Growing"),
+                        "source_file": filename
+                    })
+
         return normalized_data
 
     async def _ingest_batch(self, data: List[Dict[str, Any]], filename: str):
