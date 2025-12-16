@@ -38,6 +38,15 @@ class ScrapedDataIngestor:
         
         files = [f for f in os.listdir(DATA_DIR) if os.path.isfile(os.path.join(DATA_DIR, f))]
         
+        if len(sys.argv) > 1:
+            filter_name = sys.argv[1]
+            logger.info(f"Filtering files with keyword: '{filter_name}'")
+            files = [f for f in files if filter_name in f]
+        
+        if not files:
+            logger.warning("No files found to process.")
+            return
+
         for filename in files:
             filepath = os.path.join(DATA_DIR, filename)
             logger.info(f"Processing {filename}...")
