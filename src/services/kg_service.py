@@ -208,7 +208,7 @@ class KnowledgeGraphService:
             "links": links
         }
 
-    async def get_lineage(self, strain_name: str, depth: int = 2, collection_name: str = None) -> Dict[str, Any]:
+    async def get_lineage(self, strain_name: str, depth: int = 10, collection_name: str = None) -> Dict[str, Any]:
         """
         Retrieves the genealogy/lineage of a strain.
         Traverses 'bred_from', 'parent_of', 'hybrid_of' relations.
