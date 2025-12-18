@@ -219,18 +219,12 @@ class ScrapedDataIngestor:
                     tree_relations = {}
                     
                     if parent_html:
-                        if main_name == "Z and Z Auto":
-                            logger.info(f"DEBUG: Processing Z and Z Auto. HTML len: {len(parent_html)}")
-                            logger.info(f"DEBUG: HTML snippet: {parent_html[:200]}...")
-
                         soup = BeautifulSoup(parent_html, "html.parser")
                         root_li = soup.find('li')
                         
                         def parse_node(element: Tag, current_name: str):
                              if not current_name: return
-                             
-                             if main_name == "Z and Z Auto":
-                                logger.info(f"DEBUG: Parsing node: {current_name}")
+
                              
                              # Find the UL containing children/lineage info
                              # Usually a direct child of the LI
@@ -277,32 +271,43 @@ class ScrapedDataIngestor:
                                      # Definition Node (Ancestors)
                                      if li.find('ul'):
                                          child_name = None
-                                         # Robust name extraction: split before UL
-                                         pre_ul_html = str(li).split('<ul')[0]
-                                         pre_soup = BeautifulSoup(pre_ul_html, "html.parser")
-                                         child_a = pre_soup.find('a')
+                                         
+                                         # Robust extraction: Iterate direct children to find the name (A or Text) before the UL
+                                         for sub in li.children:
+                                             if sub.name == 'ul':
+                                                 break # Stop at the nested list
+                                             
+                                             if sub.name == 'a':
+                                                 child_name = sub.get_text(strip=True)
+                                                 break
+                                             
+                                             if isinstance(sub, str) and sub.strip():
+                                                 # Capture text node if no link found yet, but keep looking for link?
+                                                 # Usually name is a link. If text, it might be noise.
+                                                 # But if it's the only thing, take it.
+                                                 if not child_name: 
+                                                     child_name = sub.strip()
 
-                                         if child_a:
-                                             child_name = child_a.get_text(strip=True)
-                                         else:
-                                             # Text-only node?
-                                             raw_text = pre_soup.get_text(strip=True)
-                                             if raw_text and len(raw_text) > 1:
-                                                 child_name = raw_text.strip()
-
-                                         if child_name and child_name != current_name:
                                              # It is a parent/ancestor!
                                              # Add it to the relations for current_name
-                                             tree_relations[current_name] = list(set(tree_relations.get(current_name, []) + [child_name]))
+                                             # Use existing list to avoid duplicates
+                                             base_list = tree_relations.get(current_name, [])
+                                             if child_name not in base_list:
+                                                  base_list.append(child_name)
+                                                  tree_relations[current_name] = base_list
                                              
+                                             # RECURSION: Traverse this child's DOM to find ITS parents
                                              parse_node(li, child_name)
 
                         if root_li:
                             parse_node(root_li, main_name)
 
                     # 1. Main Item
-                    if main_name == "Z and Z Auto":
-                        logger.info(f"DEBUG: Final Relations for Z and Z Auto: {tree_relations.get(main_name, [])}")
+                    # Ensure main item has its relations attached
+                    main_parents = tree_relations.get(main_name, [])
+                    if not main_parents and main_name in tree_relations:
+                        # Fallback if accessed via different key? Unlikely.
+                         pass
 
                     normalized_data.append({
                         "name": main_name,
