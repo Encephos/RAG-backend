@@ -208,3 +208,7 @@ __marimo__/
 
 # Local Data
 data/sources/
+
+# Scraped Data
+scrape_data/scrape/*.csv
+scrape_data/scrape/*.json
