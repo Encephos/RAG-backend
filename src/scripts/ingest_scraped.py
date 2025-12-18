@@ -309,12 +309,20 @@ class ScrapedDataIngestor:
                         # Fallback if accessed via different key? Unlikely.
                          pass
 
+                    try:
+                        lineage_str = ", ".join(tree_relations.get(main_name, []))
+                    except TypeError as e:
+                        logger.error(f"FATAL DATA ERROR for {main_name}: relations list contains non-string. Data: {tree_relations.get(main_name, [])}")
+                        # Filter out None values to salvage
+                        valid_parents = [str(p) for p in tree_relations.get(main_name, []) if p]
+                        lineage_str = ", ".join(valid_parents)
+
                     normalized_data.append({
                         "name": main_name,
                         "description": row.get("Description"), 
                         "breeder": row.get("Breeder"),
                         "type": "Strain",
-                        "lineage": ", ".join(tree_relations.get(main_name, [])), # Main parents
+                        "lineage": lineage_str, # Main parents
                         "source_file": filename
                     })
                     
