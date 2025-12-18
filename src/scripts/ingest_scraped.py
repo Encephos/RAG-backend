@@ -204,9 +204,14 @@ class ScrapedDataIngestor:
                  logger.error("BeautifulSoup not found. Please install beautifulsoup4.")
                  return []
              
-             with open(filepath, 'r', encoding='utf-8') as f:
+             with open(filepath, 'r', encoding='utf-8', newline='') as f:
                 reader = csv.DictReader(f, delimiter=";")
+                count = 0
                 for row in reader:
+                    count += 1
+                    if count % 1000 == 0:
+                        logger.info(f"Parsing scrape.csv row {count}...")
+                        
                     main_name = row.get("Name")
                     parent_html = row.get("parent_tree")
                     
