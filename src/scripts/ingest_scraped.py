@@ -328,12 +328,15 @@ class ScrapedDataIngestor:
                     })
                     
                     # 2. Inferred Ancestor Items
-                    # For every other entry in tree_relations, create a lightweight item
-                    for child, parents in tree_relations.items():
-                        if child == main_name: continue
+                    # For every unique strain found in the tree (that isn't the main one), create a node
+                    for strain in found_strains:
+                        if strain == main_name: continue
+                        
+                        # Get parents if we found them, else empty
+                        parents = tree_relations.get(strain, [])
                         
                         normalized_data.append({
-                            "name": child,
+                            "name": strain,
                             "type": "Strain (Inferred)",
                             "lineage": ", ".join(parents),
                             "source_file": filename, # track source

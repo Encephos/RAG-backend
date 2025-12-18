@@ -50,20 +50,34 @@ async def main():
         points = response[0]
         
         if not points:
-            print("Strain NOT FOUND in Qdrant 'botanical_entities' collection.")
-            return
+            print("Strain 'Z and Z Auto' NOT FOUND in Qdrant")
+        else:
+            point = points[0]
+            relations = point.payload.get("relations", [])
+            print(f"FOUND 'Z and Z Auto'. Relations Count: {len(relations)}")
+            print(f"Relations: {relations}")
 
-        point = points[0]
-        print(f"Found Entity ID: {point.id}")
-        print("Payload Keys:", point.payload.keys())
-        
-        relations = point.payload.get("relations", [])
-        print(f"Relations Count: {len(relations)}")
-        print("Relations Data:", relations)
-        
-        if not relations:
-            print("WARNING: No relations found in payload!")
-            
+        # Check for Parent "Z3"
+        print("\nChecking for parent 'Z3'...")
+        response_parent = client.scroll(
+            collection_name="botanical_entities",
+            scroll_filter=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="name",
+                        match=models.MatchValue(value="Z3")
+                    )
+                ]
+            ),
+            limit=1
+        )
+        if response_parent[0]:
+            p_point = response_parent[0][0]
+            print(f"FOUND 'Z3'. Relations Count: {len(p_point.payload.get('relations', []))}")
+            print(f"Z3 Relations: {p_point.payload.get('relations', [])}")
+        else:
+            print("Parent 'Z3' NOT FOUND. Inferred ingestion failed.")
+
     except Exception as e:
         print(f"Search failed: {e}")
 
