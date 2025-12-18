@@ -217,13 +217,19 @@ class ScrapedDataIngestor:
                     
                     # Map of Child -> [Parents] for this entire tree
                     tree_relations = {}
+                    found_strains = {main_name} if main_name else set()
                     
                     if parent_html:
+                        # Ensure we have a root LI. The CSV column often contains just the innerHTML or fragment.
+                        if not parent_html.strip().lower().startswith("<li"):
+                             parent_html = f"<li>{parent_html}</li>"
+
                         soup = BeautifulSoup(parent_html, "html.parser")
                         root_li = soup.find('li')
                         
                         def parse_node(element: Tag, current_name: str):
                              if not current_name: return
+                             found_strains.add(current_name)
 
                              
                              # Find the UL containing children/lineage info
@@ -290,6 +296,8 @@ class ScrapedDataIngestor:
 
                                              # It is a parent/ancestor!
                                              if child_name and child_name != current_name:
+                                                 found_strains.add(child_name)
+                                                 # Add it to the relations for current_name
                                                  # Add it to the relations for current_name
                                                  # Use existing list to avoid duplicates
                                                  base_list = tree_relations.get(current_name, [])
