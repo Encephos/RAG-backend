@@ -32,10 +32,13 @@ export default function GrowVision() {
         formData.append('file', file);
 
         try {
-            const response = await fetch('http://localhost:8000/api/v1/tools/diagnose-leaf', {
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://95.216.204.29.sslip.io/api/v1';
+            const apiKey = process.env.NEXT_PUBLIC_BACKEND_API_KEY || 'secret-api-key';
+
+            const response = await fetch(`${apiUrl}/tools/diagnose-leaf`, {
                 method: 'POST',
                 headers: {
-                    'X-API-Key': 'secret-api-key' // Hardcoded for dev/demo
+                    'x-api-key': apiKey
                 },
                 body: formData
             });
@@ -88,7 +91,7 @@ export default function GrowVision() {
                                 className="hidden"
                                 ref={fileInputRef}
                                 onChange={handleFileSelect}
-                                accept="image/*"
+                                accept="image/*, .heic, .heif"
                             />
 
                             {preview ? (
