@@ -450,7 +450,7 @@ async def visualize_graph(
 @router.get("/graph/lineage")
 async def get_lineage_graph(
     strain: str,
-    depth: int = 2,
+    depth: int = 10,
     direction: str = "parents", # 'parents' or 'children' (future)
     kg_service: KnowledgeGraphService = Depends(get_kg_service)
 ):
