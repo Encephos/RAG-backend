@@ -1,14 +1,6 @@
-'use client';
-
 import { useState, useRef, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { Search, GitGraph, ZoomIn, ZoomOut, Maximize } from 'lucide-react';
-
-// Dynamically import ForceGraph to avoid SSR issues
-const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
-    ssr: false,
-    loading: () => <div className="flex items-center justify-center h-full bg-slate-50 text-slate-400">Loading Graph Engine...</div>
-});
 
 interface GraphData {
     nodes: any[];
@@ -20,7 +12,7 @@ export default function GenealogyExplorer() {
     const [data, setData] = useState<GraphData>({ nodes: [], links: [] });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const graphRef = useRef<any>(null);
+    const [selectedNode, setSelectedNode] = useState<any | null>(null);
 
     // Initial load or effect
     useEffect(() => {
@@ -34,6 +26,7 @@ export default function GenealogyExplorer() {
         setLoading(true);
         setError(null);
         setData({ nodes: [], links: [] }); // Clear prev
+        setSelectedNode(null);
 
         try {
             // Default to Prod URL if env is missing to ensure it works on Vercel without config
@@ -69,86 +62,156 @@ export default function GenealogyExplorer() {
         }
     };
 
-    const handleNodeClick = (node: any) => {
-        // Center view on node
-        if (graphRef.current) {
-            graphRef.current.centerAt(node.x, node.y, 1000);
-            graphRef.current.zoom(4, 2000);
-        }
-        // If it's an ancestor, maybe we want to fetch *its* lineage?
-        // simple update: setSearchTerm(node.label); handleSearch(...)
-    };
-
     return (
-        <div className="flex flex-col h-full bg-white relative">
-            {/* Toolbar / Search */}
-            <div className="absolute top-16 md:top-4 left-4 right-4 md:right-auto z-10 bg-white/90 backdrop-blur shadow-lg rounded-xl p-4 md:w-96 flex flex-col gap-4 border border-gray-100">
-                <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
-                    <GitGraph className="text-emerald-600 w-5 h-5" />
-                    <h2 className="font-semibold text-gray-800">Genealogy Explorer</h2>
+        <div className="flex flex-row h-full bg-slate-50 relative overflow-hidden">
+            {/* Sidebar / Details Panel */}
+            <div className={`
+                absolute md:static inset-y-0 left-0 z-30 
+                w-full md:w-96 bg-white border-r border-gray-200 shadow-xl md:shadow-none 
+                transform transition-transform duration-300 ease-in-out flex flex-col
+                ${selectedNode ? 'translate-x-0' : '-translate-x-full md:translate-x-0 md:w-80'}
+            `}>
+                {/* Search Header (Always Visible on Desktop) */}
+                <div className="p-4 border-b border-gray-100 bg-white">
+                    <div className="flex items-center gap-2 mb-4">
+                        <GitGraph className="text-emerald-600 w-5 h-5" />
+                        <h2 className="font-bold text-gray-800 tracking-tight">Genealogy Explorer</h2>
+                    </div>
+
+                    <form onSubmit={handleSearch} className="relative">
+                        <input
+                            type="text"
+                            placeholder="Search Strain..."
+                            className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-emerald-500 text-sm"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                        />
+                        <Search className="absolute left-3 top-2.5 text-gray-400 w-4 h-4" />
+                    </form>
+
+                    {error && (
+                        <div className="mt-2 p-2 bg-red-50 text-red-600 text-xs rounded border border-red-100">
+                            {error}
+                        </div>
+                    )}
                 </div>
 
-                <form onSubmit={handleSearch} className="relative">
-                    <input
-                        type="text"
-                        placeholder="Search Strain (e.g., White Widow)..."
-                        className="w-full pl-10 pr-4 py-3 md:py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all text-base"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                    />
-                    <Search className="absolute left-3 top-3.5 md:top-2.5 text-gray-400 w-4 h-4" />
-                </form>
+                {/* Details Content */}
+                <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
+                    {selectedNode ? (
+                        <div className="space-y-6 animate-in fade-in slide-in-from-left-4 duration-300">
+                            {/* Header */}
+                            <div>
+                                <div className="flex items-center gap-2 mb-1">
+                                    <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider ${selectedNode.group === 'Target'
+                                        ? 'bg-emerald-100 text-emerald-700'
+                                        : 'bg-blue-100 text-blue-700'
+                                        }`}>
+                                        {selectedNode.group === 'Target' ? 'Selected Strain' : 'Ancestor'}
+                                    </span>
+                                </div>
+                                <h1 className="text-2xl font-extrabold text-gray-900 leading-tight">
+                                    {selectedNode.label}
+                                </h1>
+                                {(selectedNode.type) && (
+                                    <p className="text-sm font-medium text-gray-500 mt-1">{selectedNode.type}</p>
+                                )}
+                            </div>
 
-                {error && (
-                    <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-100">
-                        {error}
-                    </div>
+                            {/* Key Stats Grid */}
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                    <div className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1">Breeder</div>
+                                    <div className="font-semibold text-gray-800 text-sm truncate">
+                                        {selectedNode.breeder || "Unknown"}
+                                    </div>
+                                </div>
+                                <div className="p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                    <div className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1">THC Content</div>
+                                    <div className="font-semibold text-emerald-600 text-sm">
+                                        {selectedNode.thc || "N/A"}
+                                    </div>
+                                </div>
+                                <div className="p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                    <div className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1">CBD Content</div>
+                                    <div className="font-semibold text-blue-600 text-sm">
+                                        {selectedNode.cbd || "N/A"}
+                                    </div>
+                                </div>
+                                <div className="p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                    <div className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1">Flavor</div>
+                                    <div className="font-semibold text-gray-800 text-sm truncate" title={selectedNode.flavor}>
+                                        {selectedNode.flavor ? selectedNode.flavor.split('/')[0] : "N/A"}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Description */}
+                            {selectedNode.description && (
+                                <div>
+                                    <h3 className="text-sm font-bold text-gray-900 mb-2">Description</h3>
+                                    <p className="text-sm text-gray-600 leading-relaxed">
+                                        {selectedNode.description.replace(/<[^>]*>?/gm, '')}
+                                    </p>
+                                </div>
+                            )}
+
+                            {/* Effects */}
+                            {selectedNode.effects && (
+                                <div>
+                                    <h3 className="text-sm font-bold text-gray-900 mb-2">Effects</h3>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {selectedNode.effects.split(',').map((e: string, i: number) => (
+                                            <span key={i} className="px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded-md border border-purple-100">
+                                                {e.trim()}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                        </div>
+                    ) : (
+                        <div className="h-full flex flex-col items-center justify-center text-center p-8 text-gray-400">
+                            <GitGraph className="w-12 h-12 mb-4 opacity-20" />
+                            <p className="text-sm">Search for a strain or click a node in the tree to view full genetic details.</p>
+                        </div>
+                    )}
+                </div>
+
+                {/* Close Mobile Sidebar */}
+                {selectedNode && (
+                    <button
+                        onClick={() => setSelectedNode(null)}
+                        className="md:hidden absolute top-4 right-4 p-2 bg-white rounded-full shadow-md text-gray-500"
+                    >
+                        ✕
+                    </button>
                 )}
-
-                {data.nodes.length > 0 && (
-                    <div className="text-xs text-gray-500 flex flex-col gap-1">
-                        <div className="flex items-center gap-2">
-                            <span className="w-3 h-3 rounded-full bg-emerald-500"></span> Target
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <span className="w-3 h-3 rounded-full bg-blue-400"></span> Ancestor (Parent)
-                        </div>
-                        <div className="mt-2 text-gray-400">
-                            Found {data.nodes.length} relatives.
-                        </div>
-                    </div>
-                )}
-            </div>
-
-            {/* Configs (Zoom etc) - Floating Bottom Right */}
-            <div className="absolute bottom-6 right-6 z-10 flex flex-col gap-2">
-                <button onClick={() => graphRef.current?.zoomIn()} className="p-3 md:p-3 p-4 bg-white shadow-md rounded-full hover:bg-gray-50 text-gray-600 active:scale-95 transition-transform"><ZoomIn className="w-6 h-6 md:w-5 md:h-5" /></button>
-                <button onClick={() => graphRef.current?.zoomOut()} className="p-3 md:p-3 p-4 bg-white shadow-md rounded-full hover:bg-gray-50 text-gray-600 active:scale-95 transition-transform"><ZoomOut className="w-6 h-6 md:w-5 md:h-5" /></button>
-                <button onClick={() => graphRef.current?.zoomToFit(400)} className="p-3 md:p-3 p-4 bg-white shadow-md rounded-full hover:bg-gray-50 text-gray-600 active:scale-95 transition-transform"><Maximize className="w-6 h-6 md:w-5 md:h-5" /></button>
             </div>
 
             {/* Main Graph Canvas */}
-            <div className="flex-1 overflow-hidden bg-slate-50 cursor-move touch-none">
+            <div className={`flex-1 relative h-full transition-all duration-300`}>
                 {loading && (
                     <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/50 backdrop-blur-sm">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
                     </div>
                 )}
 
-                <ForceGraph2D
-                    ref={graphRef}
-                    graphData={data}
-                    nodeLabel="label"
-                    nodeColor={(node: any) => node.group === 'Target' ? '#10b981' : node.group === 'Ancestor' ? '#3b82f6' : '#9ca3af'}
-                    nodeRelSize={6}
-                    linkColor={() => '#e2e8f0'}
-                    linkDirectionalArrowLength={3.5}
-                    linkDirectionalArrowRelPos={1}
-                    onNodeClick={handleNodeClick}
-                    cooldownTicks={100}
-                    onEngineStop={() => graphRef.current?.zoomToFit(400)}
-                />
+                {data.nodes.length > 0 ? (
+                    <ScientificLineageTree
+                        data={data}
+                        onNodeClick={setSelectedNode}
+                    />
+                ) : (
+                    <div className="h-full flex items-center justify-center text-gray-400 text-sm">
+                        Waiting for search...
+                    </div>
+                )}
             </div>
         </div>
     );
 }
+
+// Import helper
+import ScientificLineageTree from './ScientificLineageTree';

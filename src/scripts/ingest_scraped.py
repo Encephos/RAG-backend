@@ -357,7 +357,7 @@ class ScrapedDataIngestor:
 
     async def _upsert_item(self, item: Dict[str, Any]):
         name = item.get("name")
-        if not name or len(name) < 2: 
+        if not name or not name.strip(): 
             return
 
         # 1. ENTITY (Graph Node)

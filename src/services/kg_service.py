@@ -235,7 +235,15 @@ class KnowledgeGraphService:
             "id": start_node_id,
             "label": start_payload.get("name"),
             "group": "Target",
-            "val": 20
+            "val": 20,
+            "breeder": start_payload.get("breeder"),
+            "thc": start_payload.get("thc"),
+            "cbd": start_payload.get("cbd"),
+            "type": start_payload.get("type"),
+            "description": start_payload.get("description"),
+            "effects": start_payload.get("effects"),
+            "flavor": start_payload.get("flavor"),
+            "image": start_payload.get("image")
         }
         visited.add(start_node_id)
         
@@ -271,12 +279,31 @@ class KnowledgeGraphService:
                          
                          # Fetch node info for visualisation
                          target_node_payload = self.qdrant.get_entity(target_id, collection_name=target_collection)
+                         
                          if target_node_payload:
+                            nodes[target_id] = {
+                                "id": target_id,
+                                "label": target_node_payload.get("name"),
+                                "group": "Ancestor" if rel_type == "bred_from" else "Relative",
+                                "val": 10,
+                                "breeder": target_node_payload.get("breeder"),
+                                "thc": target_node_payload.get("thc"),
+                                "cbd": target_node_payload.get("cbd"),
+                                "type": target_node_payload.get("type"),
+                                "description": target_node_payload.get("description"),
+                                "effects": target_node_payload.get("effects"),
+                                "flavor": target_node_payload.get("flavor"),
+                                "image": target_node_payload.get("image")
+                            }
+                         else:
+                             # Fallback: Create Stub Node from Relation Data
+                             # This ensures the tree is shown even if the parent entity isn't fully ingested yet
                              nodes[target_id] = {
                                  "id": target_id,
-                                 "label": target_node_payload.get("name"),
-                                 "group": "Ancestor" if rel_type == "bred_from" else "Relative",
-                                 "val": 10
+                                 "label": rel.get("target_label") or "Unknown Parent",
+                                 "group": "Ancestor",
+                                 "val": 8,
+                                 "type": "Inferred"
                              }
                      
                      # Add Link

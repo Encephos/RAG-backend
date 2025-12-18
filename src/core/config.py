@@ -24,6 +24,6 @@ class Settings(BaseSettings):
     BACKEND_API_KEY: str = "secret-api-key" # Default for dev, override in .env
     ALLOWED_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:8000"]
 
-    model_config = SettingsConfigDict(env_file=".env")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 settings = Settings()
