@@ -289,15 +289,16 @@ class ScrapedDataIngestor:
                                                      child_name = sub.strip()
 
                                              # It is a parent/ancestor!
-                                             # Add it to the relations for current_name
-                                             # Use existing list to avoid duplicates
-                                             base_list = tree_relations.get(current_name, [])
-                                             if child_name not in base_list:
-                                                  base_list.append(child_name)
-                                                  tree_relations[current_name] = base_list
-                                             
-                                             # RECURSION: Traverse this child's DOM to find ITS parents
-                                             parse_node(li, child_name)
+                                             if child_name and child_name != current_name:
+                                                 # Add it to the relations for current_name
+                                                 # Use existing list to avoid duplicates
+                                                 base_list = tree_relations.get(current_name, [])
+                                                 if child_name not in base_list:
+                                                      base_list.append(child_name)
+                                                      tree_relations[current_name] = base_list
+                                                 
+                                                 # RECURSION: Traverse this child's DOM to find ITS parents
+                                                 parse_node(li, child_name)
 
                         if root_li:
                             parse_node(root_li, main_name)
