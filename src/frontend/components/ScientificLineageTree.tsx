@@ -73,20 +73,26 @@ export default function ScientificLineageTree({ data, onNodeClick }: TreeProps) 
     };
 
     useEffect(() => {
+        if (!wrapperRef.current) return;
+
+        const resizeObserver = new ResizeObserver(entries => {
+            for (let entry of entries) {
+                const { width, height } = entry.contentRect;
+                if (width > 0 && height > 0) {
+                    setDimensions({ width, height });
+                }
+            }
+        });
+
+        resizeObserver.observe(wrapperRef.current);
+
+        return () => resizeObserver.disconnect();
+    }, []);
+
+    useEffect(() => {
         if (!data.nodes.length || !svgRef.current) return;
 
-        const updateDimensions = () => {
-            if (wrapperRef.current) {
-                setDimensions({
-                    width: wrapperRef.current.clientWidth,
-                    height: wrapperRef.current.clientHeight
-                });
-            }
-        };
-
-        window.addEventListener('resize', updateDimensions);
-        updateDimensions();
-
+        // Transform and Draw Logic ...
         const rootData = buildHierarchy(data.nodes, data.links);
         if (!rootData) return;
 
@@ -120,7 +126,6 @@ export default function ScientificLineageTree({ data, onNodeClick }: TreeProps) 
         svg.call(zoom);
 
         // Center the tree initially
-        // Initial transform to center the root node roughly
         // root.x is vertical, root.y is horizontal in this layout logic if we swap them
         // Let's draw standard horizontal tree: x=y, y=x swap
 
@@ -193,14 +198,10 @@ export default function ScientificLineageTree({ data, onNodeClick }: TreeProps) 
             .attr('r', 4)
             .attr('fill', d => d.data.group === 'Target' ? '#10b981' : '#94a3b8');
 
-        // Initial Zoom to Fit
-        // A bit manual, standard d3 zoom transform
+        // Initial Zoom to Fit - Recalculate based on current dimensions
         const initialTransform = d3.zoomIdentity.translate(100, dimensions.height / 2).scale(0.8);
         svg.call(zoom.transform, initialTransform);
 
-        return () => {
-            window.removeEventListener('resize', updateDimensions);
-        };
     }, [data, dimensions]);
 
     return (

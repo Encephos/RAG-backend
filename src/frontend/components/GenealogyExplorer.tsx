@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { Search, GitGraph, ZoomIn, ZoomOut, Maximize } from 'lucide-react';
+import ScientificLineageTree from './ScientificLineageTree';
 
 interface GraphData {
     nodes: any[];
@@ -213,5 +214,6 @@ export default function GenealogyExplorer() {
     );
 }
 
+
 // Import helper
-import ScientificLineageTree from './ScientificLineageTree';
+// Removed from bottom
