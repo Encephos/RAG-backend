@@ -219,11 +219,18 @@ class ScrapedDataIngestor:
                     tree_relations = {}
                     
                     if parent_html:
+                        if main_name == "Z and Z Auto":
+                            logger.info(f"DEBUG: Processing Z and Z Auto. HTML len: {len(parent_html)}")
+                            logger.info(f"DEBUG: HTML snippet: {parent_html[:200]}...")
+
                         soup = BeautifulSoup(parent_html, "html.parser")
                         root_li = soup.find('li')
                         
                         def parse_node(element: Tag, current_name: str):
                              if not current_name: return
+                             
+                             if main_name == "Z and Z Auto":
+                                logger.info(f"DEBUG: Parsing node: {current_name}")
                              
                              # Find the UL containing children/lineage info
                              # Usually a direct child of the LI
@@ -294,6 +301,9 @@ class ScrapedDataIngestor:
                             parse_node(root_li, main_name)
 
                     # 1. Main Item
+                    if main_name == "Z and Z Auto":
+                        logger.info(f"DEBUG: Final Relations for Z and Z Auto: {tree_relations.get(main_name, [])}")
+
                     normalized_data.append({
                         "name": main_name,
                         "description": row.get("Description"), 
