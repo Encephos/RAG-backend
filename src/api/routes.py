@@ -12,6 +12,7 @@ from src.models.schemas import (
     UrlIngestRequest, AcademicIngestRequest
 )
 from src.core.limiter import limiter
+from src.core.config import settings
 import logging
 
 # Setup Logger
@@ -470,7 +471,7 @@ async def get_stats(
 ):
     stats = await rag_service.qdrant_service.get_total_points()
     return {
-        "version": "0.5.1",
+        "version": settings.VERSION,
         "total_points": stats["total_points"],
         "details": stats["details"]
     }
@@ -490,7 +491,7 @@ async def diagnose_leaf(
     image_b64 = base64.b64encode(contents).decode("utf-8")
 
     # 2. Vision Analysis (Gemini 2.5)
-    vision_prompt = "Beschreibe präzise alle Mangelerscheinungen (Verfärbungen, Flecken, Blattstruktur), Schädlinge oder Krankheiten auf diesem Cannabis-Blatt. Sei sehr detailgenau."
+    vision_prompt = "Beschreibe rein sachlich und detailliert, was visuell auf diesem Bild (Cannabis-Blatt)zu sehen ist (Farbe der Blätter, Flecken, Textur, eventuelle Insekten). Stelle KEINE Diagnosen und nenne KEINE möglichen Mangelerscheinungen oder Krankheiten. Bleibe rein deskriptiv."
     img_description = await rag_service.llm_service.analyze_image(image_b64, vision_prompt)
 
     # 3. RAG Query (Botanist)

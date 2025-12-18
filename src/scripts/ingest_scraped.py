@@ -60,6 +60,102 @@ class ScrapedDataIngestor:
 
         logger.info("Ingestion complete!")
 
+    @staticmethod
+    def parse_lineage_tree(parent_html: str, root_name: str) -> tuple[dict, set]:
+        """
+        Parses the nested HTML structure from seedfinder parent_tree column.
+        Returns (relations_dict, all_found_strains_set)
+        """
+        if not parent_html:
+             return {}, set()
+
+        # Ensure we have a root LI.
+        if not parent_html.strip().lower().startswith("<li"):
+             parent_html = f"<li>{parent_html}</li>"
+
+        try:
+            from bs4 import BeautifulSoup, Tag
+        except ImportError:
+            logger.error("BeautifulSoup not found.")
+            return {}, set()
+
+        soup = BeautifulSoup(parent_html, "html.parser")
+        root_li = soup.find('li')
+        
+        tree_relations = {}
+        found_strains = {root_name} if root_name else set()
+        
+        def parse_node(element: Tag, current_name: str):
+             if not current_name: return
+             found_strains.add(current_name)
+             
+             # Find the UL containing children/lineage info
+             ul = element.find('ul', recursive=False)
+             if not ul: return 
+             
+             for child in ul.children:
+                 if child.name == 'ul':
+                      # Potential Formula Wrapper
+                      for inner_li in child.find_all('li'):
+                          if "»»»" in inner_li.get_text():
+                              links = inner_li.find_all('a')
+                              p_list = []
+                              for link in links:
+                                  p_name = link.get_text(strip=True)
+                                  if p_name and p_name != "Unknown Ruderalis":
+                                       p_list.append(p_name)
+                              
+                                  if p_list:
+                                      existing = tree_relations.get(current_name, [])
+                                      tree_relations[current_name] = list(set(existing + p_list))
+                                      found_strains.update(p_list)
+                                  break 
+                 
+                 elif child.name == 'li':
+                     li = child
+                     text = li.get_text()
+                     
+                     # Direct LI Formula?
+                     if "»»»" in text and not li.find('ul'):
+                          links = li.find_all('a')
+                          p_list = []
+                          for link in links:
+                              p_name = link.get_text(strip=True)
+                              if p_name and p_name != "Unknown Ruderalis":
+                                   p_list.append(p_name)
+                          
+                          if p_list:
+                               existing = tree_relations.get(current_name, [])
+                               tree_relations[current_name] = list(set(existing + p_list))
+                               found_strains.update(p_list)
+                     
+                     # Definition Node (Ancestors)
+                     if li.find('ul'):
+                         child_name = None
+                         # Helper to find direct name
+                         for sub in li.children:
+                             if sub.name == 'ul': break
+                             if sub.name == 'a':
+                                 child_name = sub.get_text(strip=True)
+                                 break
+                             if isinstance(sub, str) and sub.strip():
+                                 if not child_name: child_name = sub.strip()
+
+                         if child_name and child_name != current_name:
+                             # Add to relations
+                             existing = tree_relations.get(current_name, [])
+                             if child_name not in existing:
+                                  existing.append(child_name)
+                                  tree_relations[current_name] = existing
+                             
+                             # Recurse
+                             parse_node(li, child_name)
+
+        if root_li:
+             parse_node(root_li, root_name)
+             
+        return tree_relations, found_strains
+
     def _parse_file(self, filepath: str, filename: str) -> List[Dict[str, Any]]:
         """Parses file based on name and returns list of standardized strain dicts."""
         normalized_data = []
@@ -215,101 +311,8 @@ class ScrapedDataIngestor:
                     main_name = row.get("Name")
                     parent_html = row.get("parent_tree")
                     
-                    # Map of Child -> [Parents] for this entire tree
-                    tree_relations = {}
-                    found_strains = {main_name} if main_name else set()
-                    
-                    if parent_html:
-                        # Ensure we have a root LI. The CSV column often contains just the innerHTML or fragment.
-                        if not parent_html.strip().lower().startswith("<li"):
-                             parent_html = f"<li>{parent_html}</li>"
-
-                        soup = BeautifulSoup(parent_html, "html.parser")
-                        root_li = soup.find('li')
-                        
-                        def parse_node(element: Tag, current_name: str):
-                             if not current_name: return
-                             found_strains.add(current_name)
-
-                             
-                             # Find the UL containing children/lineage info
-                             # Usually a direct child of the LI
-                             ul = element.find('ul', recursive=False)
-                             if not ul: return 
-                             
-                             # 1. Iterate direct children to find Formula (wrapped in UL?) vs Definitions (LI)
-                             # Validated logic from verify_lineage_extraction.py
-                             
-                             for child in ul.children:
-                                 if child.name == 'ul':
-                                      # Potential Formula Wrapper
-                                      for inner_li in child.find_all('li'):
-                                          if "»»»" in inner_li.get_text():
-                                              # Found Formula
-                                              links = inner_li.find_all('a')
-                                              p_list = []
-                                              for link in links:
-                                                  # Filter noise
-                                                  p_name = link.get_text(strip=True)
-                                                  if p_name and p_name != "Unknown Ruderalis":
-                                                       p_list.append(p_name)
-                                              
-                                              if p_list:
-                                                  tree_relations[current_name] = list(set(tree_relations.get(current_name, []) + p_list))
-                                              break # Found formula in this wrapper
-                                 
-                                 elif child.name == 'li':
-                                     li = child
-                                     text = li.get_text()
-                                     
-                                     # Direct LI Formula?
-                                     if "»»»" in text and not li.find('ul'):
-                                          links = li.find_all('a')
-                                          p_list = []
-                                          for link in links:
-                                              p_name = link.get_text(strip=True)
-                                              if p_name and p_name != "Unknown Ruderalis":
-                                                   p_list.append(p_name)
-                                          
-                                          if p_list:
-                                               tree_relations[current_name] = list(set(tree_relations.get(current_name, []) + p_list))
-                                     
-                                     # Definition Node (Ancestors)
-                                     if li.find('ul'):
-                                         child_name = None
-                                         
-                                         # Robust extraction: Iterate direct children to find the name (A or Text) before the UL
-                                         for sub in li.children:
-                                             if sub.name == 'ul':
-                                                 break # Stop at the nested list
-                                             
-                                             if sub.name == 'a':
-                                                 child_name = sub.get_text(strip=True)
-                                                 break
-                                             
-                                             if isinstance(sub, str) and sub.strip():
-                                                 # Capture text node if no link found yet, but keep looking for link?
-                                                 # Usually name is a link. If text, it might be noise.
-                                                 # But if it's the only thing, take it.
-                                                 if not child_name: 
-                                                     child_name = sub.strip()
-
-                                             # It is a parent/ancestor!
-                                             if child_name and child_name != current_name:
-                                                 found_strains.add(child_name)
-                                                 # Add it to the relations for current_name
-                                                 # Add it to the relations for current_name
-                                                 # Use existing list to avoid duplicates
-                                                 base_list = tree_relations.get(current_name, [])
-                                                 if child_name not in base_list:
-                                                      base_list.append(child_name)
-                                                      tree_relations[current_name] = base_list
-                                                 
-                                                 # RECURSION: Traverse this child's DOM to find ITS parents
-                                                 parse_node(li, child_name)
-
-                        if root_li:
-                            parse_node(root_li, main_name)
+                    # Use helper method
+                    tree_relations, found_strains = self.parse_lineage_tree(parent_html, main_name)
 
                     # 1. Main Item
                     # Ensure main item has its relations attached

@@ -2,6 +2,7 @@ from typing import List, Dict, Any, Optional
 import uuid
 from src.services.qdrant_service import QdrantService
 from src.services.embedding_service import EmbeddingService
+from qdrant_client import models
 import logging
 
 logger = logging.getLogger(__name__)
@@ -14,6 +15,8 @@ class KnowledgeGraphService:
     def __init__(self):
         self.qdrant = QdrantService()
         self.embedder = EmbeddingService()
+        self._lineage_cache = {} # (strain_name, depth) -> (timestamp, result)
+        self._cache_ttl = 300 # 5 minutes
 
     async def add_entity_with_resolution(self, name: str, type: str, description: str, collection_name: str = None) -> str:
         """
@@ -213,6 +216,15 @@ class KnowledgeGraphService:
         Retrieves the genealogy/lineage of a strain.
         Traverses 'bred_from', 'parent_of', 'hybrid_of' relations.
         """
+        import time
+        cache_key = (strain_name, depth, collection_name)
+        if cache_key in self._lineage_cache:
+            ts, data = self._lineage_cache[cache_key]
+            if time.time() - ts < self._cache_ttl:
+                return data
+            else:
+                del self._lineage_cache[cache_key]
+
         target_collection = collection_name or "botanical_entities" # Default to botanical graph
         
         # 1. Find Start Node
@@ -313,10 +325,62 @@ class KnowledgeGraphService:
                          "label": rel_type
                      })
 
-        return {
+        # 3. Fetch Descendants (1st Level Children)
+        # Search for entities where relations.target_id == start_node_id
+        try:
+            scroll_result = self.qdrant.client.scroll(
+                collection_name=target_collection,
+                scroll_filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="relations.target_id",
+                            match=models.MatchValue(value=start_node_id)
+                        )
+                    ]
+                ),
+                limit=15, 
+                with_payload=True
+            )
+            
+            descendants = scroll_result[0]
+
+            for point in descendants:
+                if point.id == start_node_id: continue
+                
+                child_id = point.id
+                child_payload = point.payload or {}
+                
+                # Check relation type
+                rels = child_payload.get("relations", [])
+                relevant_rel = next((r for r in rels if r.get("target_id") == start_node_id), None)
+                
+                if relevant_rel:
+                    if child_id not in nodes:
+                        nodes[child_id] = {
+                            "id": child_id,
+                            "label": child_payload.get("name"),
+                            "group": "Descendant",
+                            "val": 10
+                        }
+                    
+                    # Store Link
+                    links.append({
+                        "source": child_id,
+                        "target": start_node_id,
+                        "label": relevant_rel.get("type", "descendant")
+                    })
+        except Exception as e:
+            logger.warning(f"Error fetching descendants: {e}")
+
+        result = {
             "nodes": list(nodes.values()),
             "links": links
         }
+        
+        # Cache Result
+        self._lineage_cache[cache_key] = (time.time(), result)
+        
+        return result
 
     def clear(self) -> None:
         """Clear is not easily supported in persistent vector store without dropping collection."""

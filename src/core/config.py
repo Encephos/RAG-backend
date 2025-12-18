@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "RAG Backend"
-    VERSION: str = "0.1.0"
+    VERSION: str = "0.4.2"
     API_V1_STR: str = "/api/v1"
     
     # Qdrant Settings

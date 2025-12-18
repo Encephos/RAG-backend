@@ -77,60 +77,61 @@ class RagService:
         yield {"step": "indexing_complete", "message": "Vector indexing complete", "progress": 0.30}
 
         # 2. Knowledge Graph Construction
-        chunk_size = 300000 # Increased to ~75k tokens per request
+        chunk_size = 300000 
         text_blocks = [full_text[i:i+chunk_size] for i in range(0, len(full_text), chunk_size)]
         total_blocks = len(text_blocks)
         
-        for i, block in enumerate(text_blocks):
-            yield {"step": "extraction", "message": f"Extracting entities from block {i+1}/{total_blocks} (this may take a while)...", "progress": 0.30 + (0.60 * (i / total_blocks))}
-            
-            extraction = await self.llm_service.extract_entities(block)
-            logger.info(f"{log_prefix} Block {i+1}/{total_blocks}: Extracted {len(extraction.entities)} entities.")
-            
-            # Identify all target entity collections (Always Master + mapped from target_collections)
-            # target_collections contains alias names like 'botanical', 'studies'
-            # rag_entities (master) is automatic
-            target_entity_collections = [settings.QDRANT_ENTITY_COLLECTION_NAME] # Master
-            
-            for col_alias in target_collections:
-                if col_alias == "master": continue # Handled above
-                # Map alias to entity collection name if it exists in QdrantService map
-                mapped_entity_col = self.qdrant_service.entity_collections.get(col_alias)
-                if mapped_entity_col:
-                    target_entity_collections.append(mapped_entity_col)
-            
-            # Iterate through each collection and build the graph
-            for graph_col in target_entity_collections:
-                # Map entity names to their resolved IDs (Per Graph to avoid cross-sharing ID confusion if we want strict separation, 
-                # though effectively reusing IDs across graphs is also fine.
-                # However, add_entity_with_resolution checks existence. If we want separate graphs, we must resolve per graph.)
-                entity_name_to_id = {}
+        # Parallel Execution Logic
+        import asyncio
+        semaphore = asyncio.Semaphore(3) # Limit concurrency
+        
+        async def process_block(i, block):
+            async with semaphore:
+                # LLM Extraction
+                extraction = await self.llm_service.extract_entities(block)
+                logger.info(f"{log_prefix} Block {i+1}/{total_blocks}: Extracted {len(extraction.entities)} entities.")
                 
-                # Process Entities
-                for entity in extraction.entities:
-                    entity_id = await self.kg_service.add_entity_with_resolution(
-                        name=entity.name,
-                        type=entity.type,
-                        description=entity.description,
-                        collection_name=graph_col
-                    )
-                    entity_name_to_id[entity.name] = entity_id
-                    
-                # Process Relations
-                for relation in extraction.relations:
-                    source_id = entity_name_to_id.get(relation.source)
-                    target_id = entity_name_to_id.get(relation.target)
-                    
-                    if source_id and target_id:
-                        self.kg_service.add_relation(
-                            source_id=source_id,
-                            target_id=target_id,
-                            relation_type=relation.type,
+                # Ingest to Qdrant (Same logic as before)
+                target_entity_collections = [settings.QDRANT_ENTITY_COLLECTION_NAME]
+                for col_alias in target_collections:
+                    if col_alias == "master": continue
+                    mapped_entity_col = self.qdrant_service.entity_collections.get(col_alias)
+                    if mapped_entity_col:
+                        target_entity_collections.append(mapped_entity_col)
+                
+                for graph_col in target_entity_collections:
+                    entity_name_to_id = {}
+                    for entity in extraction.entities:
+                        entity_id = await self.kg_service.add_entity_with_resolution(
+                            name=entity.name,
+                            type=entity.type,
+                            description=entity.description,
                             collection_name=graph_col
                         )
+                        entity_name_to_id[entity.name] = entity_id
+                        
+                    for relation in extraction.relations:
+                        source_id = entity_name_to_id.get(relation.source)
+                        target_id = entity_name_to_id.get(relation.target)
+                        if source_id and target_id:
+                            self.kg_service.add_relation(
+                                source_id=source_id,
+                                target_id=target_id,
+                                relation_type=relation.type,
+                                collection_name=graph_col
+                            )
+                return i
             
-            # Update progress after block is done
-            yield {"step": "extraction_block_done", "message": f"Finished block {i+1}/{total_blocks}", "progress": 0.30 + (0.60 * ((i + 1) / total_blocks))}
+        # Create Tasks
+        tasks = [process_block(i, block) for i, block in enumerate(text_blocks)]
+        
+        # Yield progress as they complete
+        completed_count = 0
+        for future in asyncio.as_completed(tasks):
+             block_idx = await future
+             completed_count += 1
+             progress = 0.30 + (0.60 * (completed_count / total_blocks))
+             yield {"step": "extraction_block_done", "message": f"Finished block {block_idx+1}/{total_blocks}", "progress": progress}
 
         logger.info(f"{log_prefix} Document ingestion complete.")
         yield {"step": "complete", "message": "Ingestion complete!", "progress": 1.0}
