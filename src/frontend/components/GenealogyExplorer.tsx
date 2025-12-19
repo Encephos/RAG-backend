@@ -89,7 +89,7 @@ export default function GenealogyExplorer() {
             {!isMobileMenuOpen && (
                 <button
                     onClick={() => setIsMobileMenuOpen(true)}
-                    className="md:hidden absolute top-4 left-4 z-20 p-3 bg-emerald-600 text-white rounded-full shadow-lg hover:bg-emerald-700 transition-colors"
+                    className="md:hidden absolute bottom-6 right-6 z-50 p-4 bg-emerald-600 text-white rounded-full shadow-2xl hover:bg-emerald-700 hover:scale-105 transition-all duration-300 animate-bounce-subtle"
                     aria-label="Open Search"
                 >
                     <Search className="w-6 h-6" />
