@@ -17,3 +17,6 @@ pymupdf>=1.23.0
 slowapi>=0.1.9
 habanero>=1.2.3
 tenacity>=8.2.0
+langchain>=0.1.0
+langchain-openai>=0.1.0
+langgraph>=0.0.10
