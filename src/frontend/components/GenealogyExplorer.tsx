@@ -83,7 +83,7 @@ export default function GenealogyExplorer() {
     };
 
     return (
-        <div className="flex flex-row h-full bg-slate-50 relative overflow-hidden">
+        <div className="flex flex-row h-full bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-100 via-slate-100 to-emerald-100 relative overflow-hidden">
 
             {/* Mobile Toggle Button (Visible only when sidebar is closed on mobile) */}
             {!isMobileMenuOpen && (
@@ -99,12 +99,12 @@ export default function GenealogyExplorer() {
             {/* Sidebar / Details Panel */}
             <div className={`
                 absolute md:static inset-y-0 left-0 z-30 
-                w-full md:w-96 bg-white border-r border-gray-200 shadow-xl md:shadow-none 
-                transform transition-transform duration-300 ease-in-out flex flex-col
+                w-full md:w-96 bg-white/70 backdrop-blur-xl border-r border-white/50 shadow-2xl md:shadow-glass
+                transform transition-all duration-500 cubic-bezier(0.4, 0, 0.2, 1) flex flex-col
                 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0 md:w-80'}
             `}>
                 {/* Search Header (Always Visible on Desktop) */}
-                <div className="p-4 border-b border-gray-100 bg-white relative">
+                <div className="p-4 border-b border-white/40 bg-transparent relative">
                     {/* Header Top Row */}
                     <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center gap-2">
@@ -125,7 +125,7 @@ export default function GenealogyExplorer() {
                         <input
                             type="text"
                             placeholder="Search Strain..."
-                            className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-emerald-500 text-sm"
+                            className="w-full pl-9 pr-4 py-2 bg-white/50 backdrop-blur-md border border-white/60 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:bg-white/80 transition-all duration-300 text-sm shadow-inner"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
@@ -163,25 +163,25 @@ export default function GenealogyExplorer() {
 
                             {/* Key Stats Grid */}
                             <div className="grid grid-cols-2 gap-3">
-                                <div className="p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                <div className="p-3 bg-white/40 backdrop-blur-sm rounded-xl border border-white/60 shadow-sm hover:bg-white/60 hover:shadow-md transition-all duration-300 group">
                                     <div className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1">Breeder</div>
                                     <div className="font-semibold text-gray-800 text-sm truncate">
                                         {selectedNode.breeder || "Unknown"}
                                     </div>
                                 </div>
-                                <div className="p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                <div className="p-3 bg-white/40 backdrop-blur-sm rounded-xl border border-white/60 shadow-sm hover:bg-white/60 hover:shadow-md transition-all duration-300 group">
                                     <div className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1">THC Content</div>
                                     <div className="font-semibold text-emerald-600 text-sm">
                                         {selectedNode.thc || "N/A"}
                                     </div>
                                 </div>
-                                <div className="p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                <div className="p-3 bg-white/40 backdrop-blur-sm rounded-xl border border-white/60 shadow-sm hover:bg-white/60 hover:shadow-md transition-all duration-300 group">
                                     <div className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1">CBD Content</div>
                                     <div className="font-semibold text-blue-600 text-sm">
                                         {selectedNode.cbd || "N/A"}
                                     </div>
                                 </div>
-                                <div className="p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                <div className="p-3 bg-white/40 backdrop-blur-sm rounded-xl border border-white/60 shadow-sm hover:bg-white/60 hover:shadow-md transition-all duration-300 group">
                                     <div className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1">Flavor</div>
                                     <div className="font-semibold text-gray-800 text-sm truncate" title={selectedNode.flavor}>
                                         {selectedNode.flavor ? selectedNode.flavor.split('/')[0] : "N/A"}
