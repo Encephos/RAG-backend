@@ -2,22 +2,95 @@ from typing import List, Dict, Any, Optional
 import httpx
 import json
 from src.core.config import settings
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from src.models.schemas import EntityNode, Relation, ExtractionResult
 import logging
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 
+# LangChain Imports
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_core.messages import SystemMessage, HumanMessage
+from langgraph.graph import StateGraph, START, END
+from typing import TypedDict, Annotated, Optional, Any
+import operator
+
+# Internal Imports
+from src.services.qdrant_service import QdrantService
+
 logger = logging.getLogger(__name__)
+
+# Helper models for Council Orchestration (Internal)
+class Assignment(BaseModel):
+    member_id: str = Field(description="The ID of the council member expert.")
+    task: str = Field(description="The specific task assigned to this member in German.")
+
+class CouncilAssignments(BaseModel):
+    assignments: List[Assignment]
+
+class CouncilState(TypedDict):
+    query: str
+    members_info: List[Dict]
+    assignments: List[Assignment]
+    # Use operator.add to accumulate expert results from parallel branches
+    expert_results: Annotated[List[Dict[str, Any]], operator.add] 
+    final_answer: str
 
 class LLMService:
     """
-    Service for interacting with Large Language Models via OpenRouter.
+    Service for interacting with Large Language Models via OpenRouter using LangChain.
     Handles entity extraction and answer generation.
     """
-    def __init__(self):
+    def __init__(self, qdrant_service: Optional[QdrantService] = None):
         self.api_key = settings.OPENROUTER_API_KEY
         self.base_url = settings.OPENROUTER_BASE_URL
         self.model = settings.LLM_MODEL
+        
+        # Optional Qdrant Service for RAG
+        self.qdrant_service = qdrant_service
+        
+        # Initialize LangChain Chat Model
+        self.llm = ChatOpenAI(
+            model=self.model,
+            openai_api_key=self.api_key,
+            openai_api_base=f"{self.base_url}",
+            default_headers={
+                "HTTP-Referer": "http://localhost:8000",
+                "X-Title": "RAG Backend"
+            },
+            temperature=0,
+            max_retries=2
+        )
+        
+        # Initialize Embedding Model for Retrieval
+        # Configuration for OpenRouter Embeddings
+        try:
+             # We use the OpenRouter Base URL and Key
+             # Model name usually needs provider prefix for OpenRouter e.g. "openai/text-embedding-3-small"
+             embedding_model = "openai/text-embedding-3-small" 
+             
+             self.embeddings = OpenAIEmbeddings(
+                 model=embedding_model,
+                 openai_api_key=settings.OPENAI_API_KEY or self.api_key,
+                 openai_api_base=self.base_url, # Key fix: Point to OpenRouter
+                 check_embedding_ctx_length=False # Disable check as it might fail on non-standard providers
+             )
+        except Exception as e:
+            logger.warning(f"Failed to intialize Embeddings: {e}")
+            self.embeddings = None
+
+    def _get_collection_for_role(self, role: str) -> str:
+        """Map expert role to specific Qdrant collection."""
+        role_lower = role.lower()
+        if any(x in role_lower for x in ["botan", "plant", "pflanze", "geneti"]):
+            return "botanical"
+        elif any(x in role_lower for x in ["pharma", "neuro", "medic", "arznei", "wirkug"]):
+            return "pharmacological" 
+        elif any(x in role_lower for x in ["prod", "grow", "anbau", "gärtner", "soil", "boden"]):
+            return "production"
+        elif "stud" in role_lower:
+            return "studies"
+        else:
+            return "master"
         
     @retry(
         wait=wait_exponential(multiplier=1, min=4, max=60),
@@ -111,76 +184,29 @@ class LLMService:
 
     async def extract_entities(self, text: str) -> ExtractionResult:
         """
-        Extract entities (with descriptions) and relations from text using LLM.
-        
-        Args:
-            text: The input text to analyze.
-            
-        Returns:
-            ExtractionResult containing entities and relations.
+        Extract entities (with descriptions) and relations from text using LangChain Structured Output.
         """
         system_prompt = """You are an expert Knowledge Graph builder. Extract entities and relations from the text.
         
-        STRICTLY return a valid JSON object with two keys: "entities" and "relations".
-        Do NOT wrap the JSON in markdown code blocks. Return raw JSON only.
-        
-        1. "entities": List of objects with:
-           - "name": Canonical name of the entity
-           - "type": Type (Person, Organization, Location, Concept, etc.)
-           - "description": A concise (max 10 words) summary.
-           
-        2. "relations": List of objects with:
-           - "source": Name of source entity
-           - "target": Name of target entity
-           - "type": Relationship type (snake_case)
-           
-        Ensure the JSON is valid and complete.
+        1. Identify key entities (Person, Organization, Concept, Strain, etc.).
+        2. Identify relationships between them.
+        3. Be precise and concise.
         """
-
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Extract from:\n\n{text}"}
-        ]
+        
+        # Define the structured LLM
+        structured_llm = self.llm.with_structured_output(ExtractionResult)
         
         try:
-            # Explicitly request JSON format
-            response = await self._call_llm(messages, temperature=0.0, response_format={"type": "json_object"})
-            
-            # Robust JSON extraction
-            import re
-            # Find the first '{' and the last '}'
-            match = re.search(r'\{.*\}', response, re.DOTALL)
-            if match:
-                json_str = match.group(0)
-            else:
-                json_str = response
-            
-            try:
-                data = json.loads(json_str)
-            except json.JSONDecodeError:
-                # Fallback: try to clean markdown code blocks if regex failed or wasn't enough
-                clean_response = response.strip()
-                if clean_response.startswith("```"):
-                    clean_response = clean_response.split("```")[1]
-                    if clean_response.strip().lower().startswith("json"):
-                        clean_response = clean_response.strip()[4:]
-                data = json.loads(clean_response)
-            
-            # Validate and clean relations before Pydantic validation
-            if "relations" in data:
-                valid_relations = []
-                for rel in data["relations"]:
-                    # Check if all required fields are present
-                    if isinstance(rel, dict) and "source" in rel and "target" in rel and "type" in rel:
-                        valid_relations.append(rel)
-                    else:
-                        logger.warning(f"Skipping malformed relation: {rel}")
-                data["relations"] = valid_relations
-            
-            return ExtractionResult(**data)
+            logger.info(f"🔵 Extracting entities via LangChain | Text len: {len(text)}")
+            result = await structured_llm.ainvoke([
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=f"Extract from:\n\n{text}")
+            ])
+            return result
             
         except Exception as e:
             logger.error(f"Error extracting entities: {e}")
+            # Return empty result on failure
             return ExtractionResult(entities=[], relations=[])
     
     async def generate_answer(self, query: str, context: str, graph_context: str = "") -> str:
@@ -231,43 +257,32 @@ Answer based on the above context (in German, detailed):"""
         Available Experts:
         {members_desc}
         
-        Instructions:
         1. Analyze the user's query.
-        2. Assign a specific questions or task to EACH valid expert that is relevant.
-        3. If an expert is not relevant to the query, do not assign a task (or assign "None").
-        4. Return a JSON object with a key "assignments" containing a list of objects with "member_id" and "task".
-        5. The 'task' description must be in GERMAN, detailed, and specific.
-        
-        Example JSON:
-        {{
-            "assignments": [
-                {{ "member_id": "botanist", "task": "Erkläre detailliert die genetischen Unterschiede zwischen Indica und Sativa." }},
-                {{ "member_id": "pharmacologist", "task": "Analysiere umfassend die sedative Wirkung auf das ZNS." }}
-            ]
-        }}
+        2. Assign a specific task to EACH relevant expert.
+        3. The 'task' description must be in GERMAN, detailed, and specific.
+        4. If an expert is not needed, do not assign a task.
         """
         
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"User Query: {query}"}
-        ]
+        structured_llm = self.llm.with_structured_output(CouncilAssignments)
         
         try:
-            response = await self._call_llm(messages, temperature=0.2, response_format={"type": "json_object"})
-            data = json.loads(response)
-            assignments = data.get("assignments", [])
+            logger.info(f"🔵 Orchestrating Council via LangChain")
+            result = await structured_llm.ainvoke([
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=f"User Query: {query}")
+            ])
             
-            # Filter valid assignments
+            # Convert Pydantic assignments back to list of dicts
             valid_assignments = []
             valid_ids = {m['id'] for m in members_info}
             
-            for assignment in assignments:
-                mid = assignment.get("member_id")
-                task = assignment.get("task")
-                if mid in valid_ids and task and task.lower() != "none":
-                    valid_assignments.append({"member_id": mid, "task": task})
+            if result and result.assignments:
+                for req in result.assignments:
+                    if req.member_id in valid_ids and req.task:
+                         valid_assignments.append({"member_id": req.member_id, "task": req.task})
                     
             return valid_assignments
+            
         except Exception as e:
             logger.error(f"Error orchestrating council: {e}")
             return []
@@ -313,10 +328,10 @@ Answer based on the above context (in German, detailed):"""
         contributions = ""
         for res in member_results:
             contributions += f"""
-            ### Report from {res['role']}:
-            **Task**: {res['task']}
+            ### Report from {res.get('role', 'Expert')}:
+            **Task**: {res.get('task', 'N/A')}
             **Findings**:
-            {res['answer']}
+            {res.get('answer', 'No answer provided')}
             ---
             """
             
@@ -343,13 +358,139 @@ Answer based on the above context (in German, detailed):"""
         Please provide the final synthesized response in German (Detailed).
         """
         
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content}
-        ]
-        
         try:
-            return await self._call_llm(messages, temperature=0.4, response_format=None)
+             result = await self.llm.ainvoke([
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=user_content)
+             ])
+             return result.content
         except Exception as e:
             logger.error(f"Error synthesizing answer: {e}")
             return "Error synthesizing final council response."
+            
+    # --- LangGraph Implementation ---
+    
+    async def run_council_flow(self, query: str, members_info: List[Dict[str, str]], master_context: str = "") -> str:
+        """
+        Run the full Council Orchestration using LangGraph.
+        Orchestrator -> Parallel Experts -> Synthesizer
+        """
+        from langgraph.types import Send
+        
+        # 1. Define Nodes
+        
+        async def orchestrator_node(state: CouncilState):
+            assignments_list = await self.orchestrate_council(state['query'], state['members_info'])
+            # Convert dicts back to Assignment objects for internal consistency or just use lists
+            # The verify script showed orchestrate_council returns List[Dict]. 
+            # We map them to Assignment objects manually if needed, or just store as is.
+            # State expects List[Assignment]. 
+            
+            assignments = []
+            for a in assignments_list:
+                assignments.append(Assignment(member_id=a['member_id'], task=a['task']))
+            
+            return {"assignments": assignments}
+
+        async def expert_node(state: dict):
+            # State here is passed via Send, so it's just the assignment payload
+            member_id = state['member_id']
+            task = state['task']
+            role = state.get('role', 'Expert')
+            
+            context = "No specific context retrieved."
+            
+            # --- RAG RETRIEVAL ---
+            if self.qdrant_service and self.embeddings:
+                try:
+                    # 1. Determine collection
+                    collection_alias = self._get_collection_for_role(role)
+                    
+                    # 2. Embed the task/query
+                    # Using the specific task as the query for retrieval is usually better than the generic user query
+                    query_vector = await self.embeddings.aembed_query(task)
+                    
+                    # 3. Search Qdrant
+                    search_results = self.qdrant_service.search(
+                        vector=query_vector, 
+                        limit=3, 
+                        collection_alias=collection_alias
+                    )
+                    
+                    # 4. Format Context
+                    if search_results:
+                        context = "\n\n".join([f"- {res['text']}" for res in search_results])
+                        logger.info(f"✅ RAG Retrieval Success | Role: {role} | Collection: {collection_alias} | Docs: {len(search_results)}")
+                    else:
+                        logger.info(f"⚠️ RAG Retrieval Empty | Role: {role} | Collection: {collection_alias}")
+
+                except Exception as e:
+                    logger.error(f"❌ RAG Retrieval Failed for {role}: {e}")
+                    context = f"Error retrieving context: {e}"
+            else:
+                if not self.qdrant_service:
+                    logger.warning("QdrantService not available for expert node.")
+                if not self.embeddings:
+                    logger.warning("Embeddings not initialized for expert node.")
+
+            system_instr = f"Act as a {role}. Base your answer on the provided Context."
+            
+            answer = await self.generate_expert_answer(task, context, role, system_instr)
+            
+            return {"expert_results": [{
+                "member_id": member_id, 
+                "role": role, 
+                "task": task, 
+                "answer": answer
+            }]}
+
+        async def synthesizer_node(state: CouncilState):
+            final_ans = await self.synthesize_council_answer(
+                state['query'], 
+                master_context, 
+                state['expert_results']
+            )
+            return {"final_answer": final_ans}
+
+        # 2. Define Routing Logic
+        def route_to_experts(state: CouncilState):
+            assignments = state['assignments']
+            if not assignments:
+                return "synthesizer"
+                
+            tasks = []
+            members_map = {m['id']: m for m in state['members_info']}
+            
+            for assignment in assignments:
+                m_info = members_map.get(assignment.member_id, {})
+                tasks.append(Send("expert", {
+                    "member_id": assignment.member_id,
+                    "task": assignment.task,
+                    "role": m_info.get('role', 'Expert')
+                }))
+            return tasks
+
+        # 3. Build Graph
+        workflow = StateGraph(CouncilState)
+        
+        workflow.add_node("orchestrator", orchestrator_node)
+        workflow.add_node("expert", expert_node)
+        workflow.add_node("synthesizer", synthesizer_node)
+        
+        workflow.add_edge(START, "orchestrator")
+        workflow.add_conditional_edges("orchestrator", route_to_experts, ["expert", "synthesizer"])
+        workflow.add_edge("expert", "synthesizer")
+        workflow.add_edge("synthesizer", END)
+        
+        app = workflow.compile()
+        
+        # 4. Run
+        final_state = await app.ainvoke({
+            "query": query,
+            "members_info": members_info,
+            "assignments": [],
+            "expert_results": [],
+            "final_answer": ""
+        })
+        
+        return final_state["final_answer"]

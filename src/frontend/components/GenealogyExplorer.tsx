@@ -15,10 +15,20 @@ export default function GenealogyExplorer() {
     const [error, setError] = useState<string | null>(null);
     const [selectedNode, setSelectedNode] = useState<any | null>(null);
 
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
     // Initial load or effect
     useEffect(() => {
         // Optional: Load a default view or random strain?
     }, []);
+
+    // Close sidebar on node selection change if it's open solely for that?
+    // Actually, on mobile, if I select a node, I want to see details, so sidebar should OPEN.
+    useEffect(() => {
+        if (selectedNode) {
+            setIsMobileMenuOpen(true);
+        }
+    }, [selectedNode]);
 
     const handleSearch = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -28,6 +38,13 @@ export default function GenealogyExplorer() {
         setError(null);
         setData({ nodes: [], links: [] }); // Clear prev
         setSelectedNode(null);
+
+        // Auto close menu on mobile to show results after search, 
+        // BUT only if we actually find something? 
+        // UX: User searches -> Loading -> Tree appears. 
+        // If sidebar stays open, they can't see tree on mobile.
+        // So close it.
+        setIsMobileMenuOpen(false);
 
         try {
             // Default to Prod URL if env is missing to ensure it works on Vercel without config
@@ -52,12 +69,14 @@ export default function GenealogyExplorer() {
             // Try/Catch block duplication removal - simply use one logic flow
             if (graphData.nodes.length === 0) {
                 setError(`No lineage found for "${searchTerm}". Try another strain.`);
+                setIsMobileMenuOpen(true); // Re-open if error so they can try again
             } else {
                 setData(graphData);
             }
         } catch (err: any) {
             console.error("Genealogy Fetch Error:", err);
             setError(err.message || "An error occurred");
+            setIsMobileMenuOpen(true); // Re-open if error
         } finally {
             setLoading(false);
         }
@@ -65,18 +84,41 @@ export default function GenealogyExplorer() {
 
     return (
         <div className="flex flex-row h-full bg-slate-50 relative overflow-hidden">
+
+            {/* Mobile Toggle Button (Visible only when sidebar is closed on mobile) */}
+            {!isMobileMenuOpen && (
+                <button
+                    onClick={() => setIsMobileMenuOpen(true)}
+                    className="md:hidden absolute top-4 left-4 z-20 p-3 bg-emerald-600 text-white rounded-full shadow-lg hover:bg-emerald-700 transition-colors"
+                    aria-label="Open Search"
+                >
+                    <Search className="w-6 h-6" />
+                </button>
+            )}
+
             {/* Sidebar / Details Panel */}
             <div className={`
                 absolute md:static inset-y-0 left-0 z-30 
                 w-full md:w-96 bg-white border-r border-gray-200 shadow-xl md:shadow-none 
                 transform transition-transform duration-300 ease-in-out flex flex-col
-                ${selectedNode ? 'translate-x-0' : '-translate-x-full md:translate-x-0 md:w-80'}
+                ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0 md:w-80'}
             `}>
                 {/* Search Header (Always Visible on Desktop) */}
-                <div className="p-4 border-b border-gray-100 bg-white">
-                    <div className="flex items-center gap-2 mb-4">
-                        <GitGraph className="text-emerald-600 w-5 h-5" />
-                        <h2 className="font-bold text-gray-800 tracking-tight">Genealogy Explorer</h2>
+                <div className="p-4 border-b border-gray-100 bg-white relative">
+                    {/* Header Top Row */}
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-2">
+                            <GitGraph className="text-emerald-600 w-5 h-5" />
+                            <h2 className="font-bold text-gray-800 tracking-tight">Genealogy Explorer</h2>
+                        </div>
+
+                        {/* Mobile Close Button */}
+                        <button
+                            onClick={() => setIsMobileMenuOpen(false)}
+                            className="md:hidden p-1 text-gray-400 hover:text-gray-600"
+                        >
+                            ✕
+                        </button>
                     </div>
 
                     <form onSubmit={handleSearch} className="relative">
@@ -179,16 +221,6 @@ export default function GenealogyExplorer() {
                         </div>
                     )}
                 </div>
-
-                {/* Close Mobile Sidebar */}
-                {selectedNode && (
-                    <button
-                        onClick={() => setSelectedNode(null)}
-                        className="md:hidden absolute top-4 right-4 p-2 bg-white rounded-full shadow-md text-gray-500"
-                    >
-                        ✕
-                    </button>
-                )}
             </div>
 
             {/* Main Graph Canvas */}
@@ -206,7 +238,18 @@ export default function GenealogyExplorer() {
                     />
                 ) : (
                     <div className="h-full flex items-center justify-center text-gray-400 text-sm">
-                        Waiting for search...
+                        {(!loading && !error) && (
+                            <div className="text-center p-6">
+                                <Search className="w-12 h-12 mx-auto mb-2 opacity-20" />
+                                <p>Use the search panel to explore genetics.</p>
+                                <button
+                                    onClick={() => setIsMobileMenuOpen(true)}
+                                    className="md:hidden mt-4 px-4 py-2 bg-emerald-600 text-white text-sm rounded-full shadow-md"
+                                >
+                                    Open Search
+                                </button>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>

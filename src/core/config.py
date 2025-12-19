@@ -18,7 +18,10 @@ class Settings(BaseSettings):
     # OpenRouter LLM Settings
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
-    LLM_MODEL: str = "google/gemini-2.5-flash-lite-preview" # Updated to Gemini 2.5 Flash Lite
+    LLM_MODEL: str = "google/gemini-2.5-flash-lite-preview"
+    
+    # OpenAI Settings (for Embeddings if needed)
+    OPENAI_API_KEY: str = ""
 
     # Security Settings
     BACKEND_API_KEY: str = "secret-api-key" # Default for dev, override in .env
