@@ -22,7 +22,10 @@ COLLECTIONS_TO_MIGRATE = [
     "production_entities"
 ]
 
-QDRANT_URL = "http://localhost:6333"
+# Use 'qdrant' hostname within Docker network, fallback to localhost for local dev
+import os
+QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
+QDRANT_URL = f"http://{QDRANT_HOST}:6333"
 BATCH_SIZE = 100
 
 # 2. INITIALISIERUNG
