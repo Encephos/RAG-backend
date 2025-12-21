@@ -86,6 +86,32 @@ class DocumentService:
         doc = fitz.open(file_path)
         total_pages = len(doc)
         
+        # --- FAST PATH: Smart Text Extraction (PyMuPDF) ---
+        try:
+             fast_text = ""
+             for page in doc:
+                 fast_text += page.get_text() + "\n\n"
+             
+             # Smart Fallback Heuristic:
+             # If average characters per page is > 100, we assume it's a good native PDF.
+             # If less, it's likely a scan or broken text layer -> Fallback to Docling/OCR.
+             avg_chars = len(fast_text.strip()) / max(total_pages, 1)
+             
+             if avg_chars > 100:
+                 doc.close()
+                 return fast_text, {
+                    "filename": Path(file_path).name,
+                    "file_type": ".pdf",
+                    "num_pages": total_pages,
+                    "extraction_method": "fast_pymupdf_v2"
+                }
+             else:
+                 print(f"[DocumentService] Low text density ({avg_chars:.0f} chars/page). Falling back to OCR.")
+                 
+        except Exception as e:
+            print(f"[DocumentService] Fast extraction failed: {e}. Falling back to OCR.")
+        # --------------------------------------------------
+
         if total_pages <= batch_size:
             # Small enough, process normally
             doc.close()
