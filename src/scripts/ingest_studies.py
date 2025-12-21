@@ -165,27 +165,32 @@ class StudyIngestor:
         logger.info(f"Ingested metadata for: {title}")
 
     async def ingest_pdf(self, url: str, title: str, metadata: Dict[str, str]):
+        import time
+        t0 = time.time()
         logger.info(f"Downloading PDF for '{title}' from {url}...")
         
         try:
             # Download
             pdf_bytes = await asyncio.to_thread(self.scraper.download_file, url)
+            t_download = time.time()
             
             if not pdf_bytes:
-                logger.warning(f"Failed to download PDF from {url}")
+                logger.warning(f"Failed to download PDF from {url} ({(t_download-t0):.2f}s)")
                 return
 
             # Process / Chunk
             # 'process_uploaded_file' expects bytes and filename
             pseudo_filename = f"{title[:50].replace(' ', '_')}.pdf"
+            logger.info(f"Processing PDF (OCR/Parsing) for '{title}'...")
             chunks, pdf_meta = await self.doc_service.process_uploaded_file(pdf_bytes, pseudo_filename)
+            t_process = time.time()
             
             if not chunks:
-                logger.warning("No text extracted from PDF.")
+                logger.warning(f"No text extracted from PDF ({(t_process-t_download):.2f}s).")
                 return
 
             full_text = "\n\n".join([c.text for c in chunks])
-            logger.info(f"Extracted {len(full_text)} chars from PDF. Ingesting chunks...")
+            logger.info(f"Extracted {len(full_text)} chars from PDF in {(t_process-t_download):.2f}s. Ingesting chunks...")
 
             # Merge PDF metadata with CSV metadata
             combined_metadata = {
@@ -193,7 +198,9 @@ class StudyIngestor:
                 "source_url": url,
                 "title": title,
                 "type": "study_pdf",
-                "csv_metadata": metadata
+                "csv_metadata": metadata,
+                "download_time_sec": round(t_download - t0, 3),
+                "parse_time_sec": round(t_process - t_download, 3)
             }
 
             # Update chunks metadata
