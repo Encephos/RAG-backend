@@ -34,7 +34,7 @@ class RagService:
         async for _ in self.ingest_document_generator(full_text, chunks, target_collections):
             pass
 
-    async def ingest_document_generator(self, full_text: str, chunks: List[Any], target_collections: List[str] = None, source_name: str = "Unknown Source"):
+    async def ingest_document_generator(self, full_text: str, chunks: List[Any], target_collections: List[str] = None, source_name: str = "Unknown Source", skip_kg_extraction: bool = False):
         """
         Generator that yields progress updates during ingestion.
         Yields: Dict[str, Any] with keys 'step', 'message', 'progress'
@@ -77,6 +77,11 @@ class RagService:
         yield {"step": "indexing_complete", "message": "Vector indexing complete", "progress": 0.30}
 
         # 2. Knowledge Graph Construction
+        if skip_kg_extraction:
+             logger.info(f"{log_prefix} Skipping Knowledge Graph extraction via LLM.")
+             yield {"step": "complete", "message": "Ingestion complete (skipped KG)!", "progress": 1.0}
+             return
+
         chunk_size = 300000 
         text_blocks = [full_text[i:i+chunk_size] for i in range(0, len(full_text), chunk_size)]
         total_blocks = len(text_blocks)
