@@ -31,8 +31,23 @@ class DocumentService:
     def _get_converter(self):
         """Lazy load Docling converter to avoid import time overhead."""
         if self._docling_converter is None:
-            from docling.document_converter import DocumentConverter
-            self._docling_converter = DocumentConverter()
+            from docling.document_converter import DocumentConverter, PdfFormatOption
+            from docling.datamodel.pipeline_options import PdfPipelineOptions, EasyOcrOptions
+            from docling.datamodel.base_models import InputFormat
+
+            pipeline_options = PdfPipelineOptions()
+            pipeline_options.do_ocr = True # Enable OCR fallback
+            pipeline_options.do_table_structure = True 
+            
+            # Configure OCR to use Tesseract (CPU friendly) or EasyOCR
+            # Tesseract is typically faster on CPU than EasyOCR for large batches if configured right
+            # But Docling defaults are usually sane.
+            
+            self._docling_converter = DocumentConverter(
+                format_options={
+                    InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
+                }
+            )
         return self._docling_converter
 
     def parse_document(self, file_path: str, progress_callback=None) -> Tuple[str, Dict[str, Any]]:

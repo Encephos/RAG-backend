@@ -222,7 +222,10 @@ class StudyIngestor:
                 skip_kg_extraction=True
             ):
                 # Log progress from generator
-                pass
+                if event.get("step") == "indexing":
+                    logger.info(f"[{title[:30]}...] {event.get('message')}")
+                elif event.get("step") == "indexing_complete":
+                     logger.info(f"[{title[:30]}...] Vector indexing complete.")
                 
             logger.info(f"Successfully ingested PDF for {title}")
 
