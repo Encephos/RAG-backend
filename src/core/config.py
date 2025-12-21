@@ -8,12 +8,12 @@ class Settings(BaseSettings):
     # Qdrant Settings
     QDRANT_HOST: str = "localhost"
     QDRANT_PORT: int = 6333
-    QDRANT_COLLECTION_NAME: str = "rag_collection"
-    QDRANT_ENTITY_COLLECTION_NAME: str = "rag_entities"
+    QDRANT_COLLECTION_NAME: str = "master_collection_768"
+    QDRANT_ENTITY_COLLECTION_NAME: str = "rag_entities_768"
     
     # Embedding Settings
-    EMBEDDING_MODEL_NAME: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-    EMBEDDING_VECTOR_SIZE: int = 384
+    EMBEDDING_MODEL_NAME: str = "BAAI/bge-base-en-v1.5"
+    EMBEDDING_VECTOR_SIZE: int = 768
     
     # OpenRouter LLM Settings
     OPENROUTER_API_KEY: str = ""

@@ -461,7 +461,7 @@ class ScrapedDataIngestor:
             entity_id=entity_id,
             vector=name_vector,
             payload=payload,
-            collection_name="botanical_entities"
+            collection_name="botanical_entities_768"
         )
         
         self.qdrant.upsert_entity(

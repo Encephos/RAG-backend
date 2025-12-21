@@ -17,20 +17,20 @@ class QdrantService:
         # Define Collections Map (ID -> Name)
         # Using simple names for Qdrant, mapped from frontend IDs
         self.collections = {
-            "master": "master_collection",
-            "botanical": "botanical_knowledge",
-            "pharmacological": "pharmacological_knowledge",
-            "studies": "studies_data",
-            "production": "production_knowledge"
+            "master": "master_collection_768",
+            "botanical": "botanical_knowledge_768",
+            "pharmacological": "pharmacological_knowledge_768",
+            "studies": "studies_data_768",
+            "production": "production_knowledge_768"
         }
 
         # Define Entity Collections Map
         self.entity_collections = {
-            "master": settings.QDRANT_ENTITY_COLLECTION_NAME, # rag_entities
-            "botanical": "botanical_entities",
-            "pharmacological": "pharmacological_entities",
-            "studies": "studies_entities",
-            "production": "production_entities"
+            "master": settings.QDRANT_ENTITY_COLLECTION_NAME, # rag_entities_768
+            "botanical": "botanical_entities_768",
+            "pharmacological": "pharmacological_entities_768",
+            "studies": "studies_entities_768",
+            "production": "production_entities_768"
         }
         
         self._ensure_collections()
@@ -49,7 +49,7 @@ class QdrantService:
                     self.client.create_collection(
                         collection_name=col_name,
                         vectors_config=models.VectorParams(
-                            size=384,
+                            size=settings.EMBEDDING_VECTOR_SIZE,
                             distance=models.Distance.COSINE
                         )
                     )
@@ -63,7 +63,7 @@ class QdrantService:
                     self.client.create_collection(
                         collection_name=col_name,
                         vectors_config=models.VectorParams(
-                            size=384,
+                            size=settings.EMBEDDING_VECTOR_SIZE,
                             distance=models.Distance.COSINE
                         )
                     )

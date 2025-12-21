@@ -225,7 +225,7 @@ class KnowledgeGraphService:
             else:
                 del self._lineage_cache[cache_key]
 
-        target_collection = collection_name or "botanical_entities" # Default to botanical graph
+        target_collection = collection_name or "botanical_entities_768" # Default to botanical graph
         
         # 1. Find Start Node
         # We search by name vector essentially to find the exact node ID
