@@ -4,6 +4,8 @@ from qdrant_client.http import models
 from src.core.config import settings
 import uuid
 import logging
+from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
+from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +13,8 @@ class QdrantService:
     def __init__(self):
         self.client = QdrantClient(
             host=settings.QDRANT_HOST,
-            port=settings.QDRANT_PORT
+            port=settings.QDRANT_PORT,
+            timeout=60.0 # Increase timeout to 60s
         )
         
         # Define Collections Map (ID -> Name)
@@ -73,6 +76,7 @@ class QdrantService:
         except Exception as e:
             logger.error(f"Error ensuring collections: {e}")
 
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(2), retry=retry_if_exception_type((ResponseHandlingException, UnexpectedResponse, ConnectionError)))
     def upsert(self, text: str, vector: List[float], metadata: Dict[str, Any] = None, collection_alias: str = "master"):
         """
         Upsert a single document chunk.
@@ -102,7 +106,7 @@ class QdrantService:
             )
         except Exception as e:
             # Simple retry logic only for master as it is critical, or just log error
-            logger.error(f"Error upserting to {collection_name}: {e}")
+            logger.warning(f"Error upserting to {collection_name} (attempting retry): {e}")
             raise e
 
     def search(self, vector: List[float], limit: int = 5, collection_alias: str = "master") -> List[Dict[str, Any]]:

@@ -3,6 +3,7 @@ from src.services.qdrant_service import QdrantService
 from src.services.embedding_service import EmbeddingService
 from src.services.kg_service import KnowledgeGraphService
 from src.services.llm_service import LLMService
+from src.services.rerank_service import RerankService
 from src.models.schemas import SearchResult
 from src.core.config import settings
 import logging
@@ -19,6 +20,7 @@ class RagService:
         self.embedding_service = EmbeddingService()
         self.kg_service = KnowledgeGraphService()
         self.llm_service = LLMService()
+        self.rerank_service = RerankService()
 
     async def ingest(self, text: str, metadata: Dict[str, Any] = None):
         """
@@ -156,21 +158,26 @@ class RagService:
         
         # 1. Vector Search (Document Chunks)
         query_vector = await self.embedding_service.embed_query(query)
-        search_results = self.qdrant_service.search(query_vector, limit)
-        logger.debug(f"Retrieved {len(search_results)} document chunks.")
         
+        # Initial retrieval with larger limit
+        initial_results = self.qdrant_service.search(query_vector, limit=settings.INITIAL_RETRIEVAL_LIMIT)
+        logger.debug(f"Retrieved {len(initial_results)} document chunks (pre-rerank).")
+        
+        # Rerank Results
+        ranked_results = self.rerank_service.rerank(query, initial_results, top_k=settings.FINAL_K)
+
         # 2. Graph Retrieval (Semantic Entry Points)
         graph_context_str = await self.kg_service.get_graph_context(query)
         logger.debug("Retrieved graph context.")
 
         # 3. Generate Answer using LLM
-        context_text = "\n\n".join([r["text"] for r in search_results])
+        context_text = "\n\n".join([r["text"] for r in ranked_results])
         answer = await self.llm_service.generate_answer(query, context_text, graph_context_str)
         logger.info("Generated answer.")
 
         return {
             "answer": answer,
-            "context": search_results,
+            "context": ranked_results,
             "graph_context": {"summary": graph_context_str}
         }
 

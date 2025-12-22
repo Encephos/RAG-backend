@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL_NAME: str = "BAAI/bge-base-en-v1.5"
     EMBEDDING_VECTOR_SIZE: int = 768
     
+    # Reranker Settings
+    RERANKER_MODEL_NAME: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    INITIAL_RETRIEVAL_LIMIT: int = 50
+    FINAL_K: int = 15
+    
     # OpenRouter LLM Settings
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
