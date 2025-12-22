@@ -49,7 +49,12 @@ async def main():
                 )
                 res = kg.qdrant.client.scroll(collection_name=col, scroll_filter=scroll_filter, limit=1)
                 if res[0]:
-                     logger.info(f"  BUT found via EXACT NAME match! ID: {res[0][0].id}")
+                     p_exact = res[0][0]
+                     logger.info(f"  BUT found via EXACT NAME match! ID: {p_exact.id}")
+                     logger.info(f"  Payload keys: {list(p_exact.payload.keys())}")
+                     logger.info(f"  'text' field content: '{p_exact.payload.get('text', 'MISSING')}'")
+                     logger.info(f"  'name' field: '{p_exact.payload.get('name', 'MISSING')}'")
+                     logger.info(f"  'description' (start): '{str(p_exact.payload.get('description', 'MISSING'))[:50]}'")
                 else:
                      logger.info(f"  And NO exact name match found.")
                      
