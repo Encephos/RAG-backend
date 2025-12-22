@@ -25,8 +25,9 @@ COLLECTIONS_TO_MIGRATE = [
 # Use 'qdrant' hostname within Docker network, fallback to localhost for local dev
 import os
 QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
+import gc
 QDRANT_URL = f"http://{QDRANT_HOST}:6333"
-BATCH_SIZE = 200 # Reduced from 1000 to prevent OOM/Timeouts
+BATCH_SIZE = 50 # Drastically reduced to prevent OOM
 
 # 2. INITIALISIERUNG
 client = QdrantClient(url=QDRANT_URL)
@@ -87,9 +88,11 @@ def run_migration():
         pbar = tqdm(total=total_count, desc=f"Processing {old_name}")
 
         while True:
+            t0 = time.time()
             res, next_page = client.scroll(
                 collection_name=old_name, limit=BATCH_SIZE, with_payload=True, offset=next_page
             )
+            t_scroll = time.time()
             if not res: break
 
             # Prepare texts for embedding
@@ -117,8 +120,11 @@ def run_migration():
                      
                 texts_to_embed.append(cleaned)
             
+            t_prep = time.time()
+            
             # Lokales Embedding
             new_vectors = list(model.embed(texts_to_embed))
+            t_embed = time.time()
 
             points = []
             for i, point in enumerate(res):
@@ -131,9 +137,29 @@ def run_migration():
                     vector=new_vectors[i].tolist(),
                     payload=new_payload
                 ))
+            
+            t_struct = time.time()
 
             client.upsert(collection_name=new_name, points=points)
+            t_upsert = time.time()
+            
             pbar.update(len(res))
+            
+            # Print Timing Stats for first few batches to diagnose
+            if pbar.n < (BATCH_SIZE * 20) or (pbar.n % 1000 == 0):
+                print(f"\n[Timing] Batch {len(res)} items | "
+                      f"Scroll: {t_scroll-t0:.2f}s | "
+                      f"Clean/Prep: {t_prep-t_scroll:.2f}s | "
+                      f"Embed: {t_embed-t_prep:.2f}s | "
+                      f"Upsert: {t_upsert-t_struct:.2f}s", flush=True)
+            
+            # Force Garbage Collection to prevent OOM
+            del new_vectors
+            del texts_to_embed
+            del points
+            del res
+            gc.collect()
+
             if next_page is None: break
 
         pbar.close()
