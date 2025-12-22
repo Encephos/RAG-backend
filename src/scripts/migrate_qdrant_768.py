@@ -26,7 +26,7 @@ COLLECTIONS_TO_MIGRATE = [
 import os
 QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_URL = f"http://{QDRANT_HOST}:6333"
-BATCH_SIZE = 1000 # Increased from 100 to reduce network round-trips (Remote DB)
+BATCH_SIZE = 200 # Reduced from 1000 to prevent OOM/Timeouts
 
 # 2. INITIALISIERUNG
 client = QdrantClient(url=QDRANT_URL)
@@ -140,5 +140,10 @@ def run_migration():
 
 if __name__ == "__main__":
     start = time.time()
-    run_migration()
-    print(f"Migration beendet. Dauer: {(time.time() - start) / 3600:.2f} Stunden.")
+    try:
+        run_migration()
+        print(f"Migration beendet. Dauer: {(time.time() - start) / 3600:.2f} Stunden.")
+    except KeyboardInterrupt:
+        print("\nAbbruch durch Benutzer.")
+    except Exception as e:
+        print(f"\nFATAL ERROR UNCAUGHT: {e}")
