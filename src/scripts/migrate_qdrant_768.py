@@ -26,12 +26,12 @@ COLLECTIONS_TO_MIGRATE = [
 import os
 QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_URL = f"http://{QDRANT_HOST}:6333"
-BATCH_SIZE = 100
+BATCH_SIZE = 1000 # Increased from 100 to reduce network round-trips (Remote DB)
 
 # 2. INITIALISIERUNG
 client = QdrantClient(url=QDRANT_URL)
-# parallel=4 lässt 4 Kerne für andere Aufgaben frei
-model = TextEmbedding(model_name="BAAI/bge-base-en-v1.5", parallel=4)
+# parallel=None nutzt alle verfügbaren Kerne (Standard)
+model = TextEmbedding(model_name="BAAI/bge-base-en-v1.5")
 
 # DYNAMISCHES REGEX-MUSTER
 # Erklärt: Findet den Block von "Here you can find..." bis "...even more information."
