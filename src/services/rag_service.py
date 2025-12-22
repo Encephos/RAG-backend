@@ -160,7 +160,11 @@ class RagService:
         query_vector = await self.embedding_service.embed_query(query)
         
         # Initial retrieval with larger limit
-        initial_results = self.qdrant_service.search(query_vector, limit=settings.INITIAL_RETRIEVAL_LIMIT)
+        initial_results = self.qdrant_service.search(
+            vector=query_vector, 
+            limit=settings.INITIAL_RETRIEVAL_LIMIT,
+            query_text=query # Pass text for Hybrid Search
+        )
         logger.debug(f"Retrieved {len(initial_results)} document chunks (pre-rerank).")
         
         # Rerank Results

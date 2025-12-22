@@ -230,13 +230,41 @@ class KnowledgeGraphService:
         # 1. Find Start Node
         # We search by name vector essentially to find the exact node ID
         query_vector = await self.embedder.embed_query(strain_name)
-        start_points = self.qdrant.search_entities(query_vector, limit=1, score_threshold=0.85, collection_name=target_collection)
+        start_points = self.qdrant.search_entities(query_vector, limit=1, score_threshold=0.80, collection_name=target_collection)
         
-        if not start_points:
+        start_node_id = None
+        start_payload = None
+        
+        if start_points:
+             start_node_id = start_points[0].id
+             start_payload = start_points[0].payload
+        else:
+             # Fallback: Exact name match via Scroll
+             # This handles cases where vector/embedding quality is low but name is known
+             try:
+                 scroll_result = self.qdrant.client.scroll(
+                     collection_name=target_collection,
+                     scroll_filter=models.Filter(
+                         must=[
+                             models.FieldCondition(
+                                 key="name",
+                                 match=models.MatchValue(value=strain_name)
+                             )
+                         ]
+                     ),
+                     limit=1,
+                     with_payload=True
+                 )
+                 if scroll_result[0]:
+                     start_node_id = scroll_result[0][0].id
+                     start_payload = scroll_result[0][0].payload
+                     logger.info(f"Lineage: Found '{strain_name}' via exact name fallback.")
+             except Exception as e:
+                 logger.warning(f"Lineage fallback search failed: {e}")
+
+        if not start_node_id:
+            logger.warning(f"Lineage: Strain '{strain_name}' not found in {target_collection}")
             return {"nodes": [], "links": []}
-            
-        start_node_id = start_points[0].id
-        start_payload = start_points[0].payload
         
         nodes = {}
         links = []

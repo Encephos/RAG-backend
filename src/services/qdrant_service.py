@@ -109,24 +109,89 @@ class QdrantService:
             logger.warning(f"Error upserting to {collection_name} (attempting retry): {e}")
             raise e
 
-    def search(self, vector: List[float], limit: int = 5, collection_alias: str = "master") -> List[Dict[str, Any]]:
-        """Search for similar document chunks in a specific collection."""
+    def search(self, vector: List[float], limit: int = 5, collection_alias: str = "master", query_text: str = None) -> List[Dict[str, Any]]:
+        """
+        Hyper-Hybrid Search: Combines Dense Vector Search with Keyword Matching.
+        Ensures finding specific terms (e.g. 'Zkittelz') even if vector similarity is low.
+        """
         
         collection_name = self.collections.get(collection_alias, self.collections["master"])
         
-        results = self.client.query_points(
+        # 1. Vector Search (Semantic)
+        vector_results = self.client.query_points(
             collection_name=collection_name,
             query=vector,
             limit=limit
         ).points
         
+        # 2. Keyword Search (Exact/Lexical) - If query provided
+        keyword_results = []
+        if query_text and len(query_text) > 2:
+            try:
+                # Use MatchText for full-text-like behavior (token based)
+                # Or MatchValue for strict exact match of fields like 'name'
+                # We try both: Text content AND specific payload fields
+                kw_filter = models.Filter(
+                    should=[
+                        models.FieldCondition(key="text", match=models.MatchText(text=query_text)),
+                        models.FieldCondition(key="name", match=models.MatchValue(value=query_text)), # Strict name match
+                        models.FieldCondition(key="title", match=models.MatchText(text=query_text))
+                    ]
+                )
+                
+                # Fetch more candidates for keywords to ensure good recall
+                keyword_points = self.client.scroll(
+                    collection_name=collection_name,
+                    scroll_filter=kw_filter,
+                    limit=limit,
+                    with_payload=True
+                )[0]
+                
+                keyword_results = keyword_points
+                if keyword_results:
+                    logger.info(f"Hybrid Search: Found {len(keyword_results)} keyword matches for '{query_text}'")
+                    
+            except Exception as e:
+                logger.warning(f"Keyword search failed (hybrid fallback): {e}")
+
+        # 3. Merge & Deduplicate
+        # Map ID -> Point, boosting score for keyword matches
+        merged = {}
+        
+        # Add Vector Results first
+        for hit in vector_results:
+            merged[hit.id] = {
+                "point": hit,
+                "score": hit.score,
+                "reason": "vector"
+            }
+            
+        # Add/Boost Keyword Results
+        for hit in keyword_results:
+            if hit.id in merged:
+                # Boost existing vector hit
+                merged[hit.id]["score"] += 0.3 # Boost factor
+                merged[hit.id]["reason"] = "hybrid"
+            else:
+                # Add new keyword-only hit with high base score
+                # Assign score 1.0 to ensure it rivals/beats average vector scores (0.7-0.8)
+                merged[hit.id] = {
+                    "point": hit,
+                    "score": 0.95, 
+                    "reason": "keyword"
+                }
+        
+        # 4. Sort and Slice
+        sorted_hits = sorted(merged.values(), key=lambda x: x["score"], reverse=True)[:limit]
+        
         return [
             {
-                "text": hit.payload.get("text", ""),
-                "score": hit.score,
-                "metadata": hit.payload
+                "text": item["point"].payload.get("text", ""),
+                "score": item["score"],
+                "metadata": item["point"].payload,
+                "search_method": item["reason"]
             }
-            for hit in results
+            for item in sorted_hits
         ]
 
     # --- Entity / Graph Methods ---

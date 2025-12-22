@@ -49,7 +49,8 @@ class CouncilService:
             search_results = self.qdrant_service.search(
                 vector=query_vector, 
                 limit=3, 
-                collection_alias=member_config.collection
+                collection_alias=member_config.collection,
+                query_text=task # Enable Hybrid Search
             )
             
             context_text = "\n\n".join([r["text"] for r in search_results])

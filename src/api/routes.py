@@ -503,7 +503,8 @@ async def diagnose_leaf(
     rag_results = rag_service.qdrant_service.search(
         vector=query_vector,
         limit=3,
-        collection_alias="botanical" 
+        collection_alias="botanical",
+        query_text=query # Enable Hybrid Search
     )
     
     context = "\n".join([f"- {doc['text']}" for doc in rag_results])
