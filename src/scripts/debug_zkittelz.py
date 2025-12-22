@@ -43,12 +43,15 @@ async def main():
                         logger.info(f"  Payload keys: {list(p.payload.keys())}")
                         logger.info(f"  Relations: {len(p.payload.get('relations', []))}")
                         
+        except Exception as e:
+            logger.error(f"Error checking {col}: {e}")
+
     # Check Non-Suffixed / 384 Collections
     collections_check = ["botanical_entities", "rag_entities", "botanical_knowledge", "botanical_entities_384"]
     
     from qdrant_client import models
     
-    for col in collections_384:
+    for col in collections_check:
         logger.info(f"--- Checking 384 Collection: {col} ---")
         try:
             # We cannot do vector search because our current model is likely 768.
