@@ -13,7 +13,8 @@ from src.core.config import settings
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-STAIN_NAME = "Zkittelz" # Or try Zkittlez as commonly spelled?
+STAIN_NAME = "Zkittelz" 
+VARIATIONS = ["Zkittlez", "Zkittles", "Zkittelz"] # Common spellings
 
 async def main():
     kg = KnowledgeGraphService()
@@ -25,19 +26,23 @@ async def main():
     for col in ["botanical_entities_768", settings.QDRANT_ENTITY_COLLECTION_NAME]:
         logger.info(f"--- Collection: {col} ---")
         try:
-            # We use the embedding service from KG service
-            vec = await kg.embedder.embed_query(STAIN_NAME)
-            points = kg.qdrant.search_entities(vec, limit=3, score_threshold=0.80, collection_name=col)
-            
-            if not points:
-                logger.info("  No matches found.")
-            else:
-                for p in points:
-                    logger.info(f"  Match: {p.payload.get('name')} (Score: {p.score})")
-                    logger.info(f"  ID: {p.id}")
-                    logger.info(f"  Relations: {len(p.payload.get('relations', []))}")
-                    for r in p.payload.get('relations', []):
-                        logger.info(f"    - {r.get('type')} -> {r.get('target_label') or r.get('target_id')}")
+             # Try variations
+             for name in VARIATIONS:
+                logger.info(f"Checking for '{name}'...")
+                vec = await kg.embedder.embed_query(name)
+                # Lower threshold significantly to catch ANYTHING related
+                points = kg.qdrant.search_entities(vec, limit=5, score_threshold=0.50, collection_name=col)
+                
+                if not points:
+                    logger.info(f"  No matches found for {name} > 0.50")
+                else:
+                    for p in points:
+                        logger.info(f"  MATCH FOUND: {p.payload.get('name')} (Score: {p.score})")
+                        logger.info(f"  ID: {p.id}")
+                        logger.info(f"  Type: {p.payload.get('type')}")
+                        logger.info(f"  Payload keys: {list(p.payload.keys())}")
+                        logger.info(f"  Relations: {len(p.payload.get('relations', []))}")
+                        
         except Exception as e:
             logger.error(f"Error checking {col}: {e}")
 
