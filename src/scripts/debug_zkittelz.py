@@ -43,8 +43,8 @@ async def main():
                         logger.info(f"  Payload keys: {list(p.payload.keys())}")
                         logger.info(f"  Relations: {len(p.payload.get('relations', []))}")
                         
-    # Check 384 Collections
-    collections_384 = ["botanical_entities_384", "rag_entities_384", "botanical_knowledge_384"]
+    # Check Non-Suffixed / 384 Collections
+    collections_check = ["botanical_entities", "rag_entities", "botanical_knowledge", "botanical_entities_384"]
     
     from qdrant_client import models
     
