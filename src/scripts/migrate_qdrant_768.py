@@ -8,18 +8,18 @@ from fastembed import TextEmbedding
 # Liste aller 10 Collections (Wissens- und Entitäts-Collections)
 COLLECTIONS_TO_MIGRATE = [
     # Vector / Knowledge Collections
-    "master_collection",
-    "botanical_knowledge",
-    "pharmacological_knowledge",
-    "studies_data",
-    "production_knowledge",
+    # "master_collection",
+    # "botanical_knowledge",
+    # "pharmacological_knowledge",
+    # "studies_data",
+    # "production_knowledge",
     
     # Entity / Graph Collections
-    "rag_entities",
-    "botanical_entities",
-    "pharmacological_entities",
-    "studies_entities",
-    "production_entities"
+    # "rag_entities",
+    "botanical_entities", # <-- NUR DAS HIER IST WICHTIG FÜR GENEALOGY / STRAINS
+    # "pharmacological_entities",
+    # "studies_entities",
+    # "production_entities"
 ]
 
 # Use 'qdrant' hostname within Docker network, fallback to localhost for local dev
@@ -92,16 +92,38 @@ def run_migration():
             )
             if not res: break
 
-            original_texts = [p.payload.get("text", "") for p in res]
-            cleaned_texts = [clean_text(t) for t in original_texts]
+            # Prepare texts for embedding
+            texts_to_embed = []
+            for p in res:
+                # 1. Try existing 'text' field
+                raw_text = p.payload.get("text", "")
+                cleaned = clean_text(raw_text)
+                
+                # 2. If empty (common for Entities), construct from Name + Description
+                if not cleaned:
+                    name = p.payload.get("name", "")
+                    desc = p.payload.get("description", "")
+                    # Also try other useful fields for context
+                    type_str = p.payload.get("type", "")
+                    cleaned = f"{name} ({type_str}): {desc}".strip()
+                    
+                    # If still empty (edge case), use Name
+                    if not cleaned and name:
+                        cleaned = name
+
+                if not cleaned:
+                     # Fallback to avoid empty embedding error
+                     cleaned = "Unknown Entity"
+                     
+                texts_to_embed.append(cleaned)
             
             # Lokales Embedding
-            new_vectors = list(model.embed(cleaned_texts))
+            new_vectors = list(model.embed(texts_to_embed))
 
             points = []
             for i, point in enumerate(res):
                 new_payload = point.payload.copy()
-                new_payload["text"] = cleaned_texts[i]
+                new_payload["text"] = texts_to_embed[i] # Store the text we used for embedding
                 new_payload["migrated_from"] = old_name # Traceability
                 
                 points.append(models.PointStruct(
