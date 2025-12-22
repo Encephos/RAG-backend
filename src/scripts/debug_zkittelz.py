@@ -43,8 +43,41 @@ async def main():
                         logger.info(f"  Payload keys: {list(p.payload.keys())}")
                         logger.info(f"  Relations: {len(p.payload.get('relations', []))}")
                         
+    # Check 384 Collections
+    collections_384 = ["botanical_entities_384", "rag_entities_384", "botanical_knowledge_384"]
+    
+    from qdrant_client import models
+    
+    for col in collections_384:
+        logger.info(f"--- Checking 384 Collection: {col} ---")
+        try:
+            # We cannot do vector search because our current model is likely 768.
+            # So we perform a Scroll with a Filter for the name.
+            
+            for name in VARIATIONS:
+                 scroll_filter = models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="name",
+                            match=models.MatchValue(value=name)
+                        )
+                    ]
+                )
+                 res = kg.qdrant.client.scroll(
+                     collection_name=col,
+                     scroll_filter=scroll_filter,
+                     limit=5
+                 )
+                 points = res[0]
+                 
+                 if points:
+                     for p in points:
+                         logger.info(f"  MATCH FOUND in {col}: {p.payload.get('name')}")
+                 else:
+                     logger.info(f"  No exact match for {name}")
+                     
         except Exception as e:
-            logger.error(f"Error checking {col}: {e}")
+            logger.warning(f"  Collection {col} likely does not exist or error: {e}")
 
 if __name__ == "__main__":
     asyncio.run(main())
