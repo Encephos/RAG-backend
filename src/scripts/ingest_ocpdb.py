@@ -156,7 +156,7 @@ async def main():
             if top_terps:
                 description += f" Top Terpenes: {', '.join([f'{t[0]} ({t[1]}%)' for t in top_terps])}."
             
-                try:
+            try:
                 # Add via KG Service to handle embedding and ID creation
                 await kg_service.add_entity_with_resolution(
                     name=strain_name,
