@@ -72,29 +72,46 @@ async def main():
             
             try:
                 # 1. Ensure Strain Exists / Create it
-                strain_id = await kg_service.add_entity_with_resolution(
-                    name=strain_name,
-                    type="Strain",
-                    description=description,
+                # Check for existing entity by exact name first
+                from qdrant_client import models
+                existing_strain = kg_service.qdrant.client.scroll(
                     collection_name=collection,
-                    use_384_dim=True
-                )
+                    scroll_filter=models.Filter(
+                        must=[models.FieldCondition(key="name", match=models.MatchValue(value=strain_name))]
+                    ),
+                    limit=1,
+                    with_payload=True
+                )[0]
+                
+                if existing_strain:
+                    strain_id = existing_strain[0].id
+                    # Merge description if new is more detailed? 
+                    # For now just use existing ID
+                else:
+                    strain_id = await kg_service.add_entity_with_resolution(
+                        name=strain_name,
+                        type="Strain",
+                        description=description,
+                        collection_name=collection,
+                        use_384_dim=True
+                    )
                 
                 # 2. Update Payload (Metadata)
-                # We need to fetch the existing payload first to merge? 
-                # Or we can just overwrite/merge with updated fields if we had a direct update method.
-                # `add_entity_with_resolution` creates if new.
-                # Let's use Qdrant directly to update metadata like we did in OCPDB ingest
-                
                 payload_update = {
                     "effects": effects,
                     "flavor": flavor
                 }
                 if thc_str:
-                    payload_update["thc_ref"] = parse_float_percent(thc_str) # Keep separate from lab data?
+                    payload_update["thc_ref"] = parse_float_percent(thc_str) 
                 if cbd_str:
-                    payload_update["cbd_ref"] = cbd_str # Allow string for 'Low/High'
+                    payload_update["cbd_ref"] = cbd_str 
                     
+                # Merge with existing payload if possible
+                if existing_strain:
+                     current_payload = existing_strain[0].payload
+                     current_payload.update(payload_update)
+                     payload_update = current_payload
+
                 kg_service.qdrant.client.set_payload(
                     collection_name=collection,
                     payload=payload_update,
@@ -105,14 +122,25 @@ async def main():
                 for parent_name in parents:
                     if not parent_name or len(parent_name) < 2: continue
                     
-                    # Create Parent Entity (Stub if not detailed)
-                    parent_id = await kg_service.add_entity_with_resolution(
-                        name=parent_name,
-                        type="Strain", # Assume parent is strain
-                        description=f"Parent strain of {strain_name}",
+                    # Check for parent existence
+                    existing_parent = kg_service.qdrant.client.scroll(
                         collection_name=collection,
-                        use_384_dim=True
-                    )
+                        scroll_filter=models.Filter(
+                            must=[models.FieldCondition(key="name", match=models.MatchValue(value=parent_name))]
+                        ),
+                        limit=1
+                    )[0]
+
+                    if existing_parent:
+                        parent_id = existing_parent[0].id
+                    else:
+                        parent_id = await kg_service.add_entity_with_resolution(
+                            name=parent_name,
+                            type="Strain", 
+                            description=f"Parent strain of {strain_name}",
+                            collection_name=collection,
+                            use_384_dim=True
+                        )
                     
                     # Add Relation: Strain -> bred_from -> Parent
                     kg_service.add_relation(
