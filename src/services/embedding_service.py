@@ -15,7 +15,16 @@ class EmbeddingService:
     """
     def __init__(self):
         self.model = TextEmbedding(model_name=settings.EMBEDDING_MODEL_NAME)
+        self.model = TextEmbedding(model_name=settings.EMBEDDING_MODEL_NAME)
+        self._model_384 = None # Lazy load legacy model
         self._executor = ThreadPoolExecutor(max_workers=3) # Limit CPU threads
+
+    def _get_model_384(self):
+        """Lazy load the 384-dim model for legacy collections."""
+        if not self._model_384:
+             logger.info("Loading legacy 384-dim model (all-MiniLM-L6-v2)...")
+             self._model_384 = TextEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
+        return self._model_384
 
     async def embed(self, texts: List[str]) -> List[List[float]]:
         """
@@ -53,3 +62,22 @@ class EmbeddingService:
         """
         embeddings = await self.embed([query])
         return embeddings[0]
+
+    async def embed_query_384(self, query: str) -> List[float]:
+        """
+        Generate 384-dim embedding for legacy collections.
+        """
+        loop = asyncio.get_running_loop()
+        try:
+             # Run in thread pool
+            embedding = await loop.run_in_executor(self._executor, self._embed_sync_384, query)
+            return embedding
+        except Exception as e:
+            logger.error(f"Error generating 384 embedding: {e}")
+            raise
+
+    def _embed_sync_384(self, query: str) -> List[float]:
+        """Internal sync method for 384 model."""
+        model = self._get_model_384()
+        embedding = list(model.embed([query]))[0]
+        return embedding.tolist() if isinstance(embedding, np.ndarray) else list(embedding)

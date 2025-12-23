@@ -225,11 +225,15 @@ class KnowledgeGraphService:
             else:
                 del self._lineage_cache[cache_key]
 
-        target_collection = collection_name or "botanical_entities_768" # Default to botanical graph
+        target_collection = collection_name or "botanical_entities" # Reverted to 384 collection
         
         # 1. Find Start Node
         # We search by name vector essentially to find the exact node ID
-        query_vector = await self.embedder.embed_query(strain_name)
+        if target_collection == "botanical_entities":
+            query_vector = await self.embedder.embed_query_384(strain_name)
+        else:
+            query_vector = await self.embedder.embed_query(strain_name)
+            
         start_points = self.qdrant.search_entities(query_vector, limit=1, score_threshold=0.80, collection_name=target_collection)
         
         start_node_id = None
