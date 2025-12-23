@@ -329,6 +329,13 @@ class KnowledgeGraphService:
                 payload = layer_payloads.get(pid, {})
                 relations = payload.get("relations", [])
                 
+                # UPDATE LABEL from actual payload (Fixes "Unknown")
+                if payload.get("name"):
+                    nodes[pid]["label"] = payload.get("name")
+                    nodes[pid]["breeder"] = payload.get("breeder")
+                    nodes[pid]["image"] = payload.get("image")
+                    nodes[pid]["type"] = payload.get("type")
+
                 # Check parents (upstream)
                 for r in relations:
                     rtype = r.get("type", "").lower()
