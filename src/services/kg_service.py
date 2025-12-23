@@ -251,23 +251,31 @@ class KnowledgeGraphService:
              # Fallback: Exact name match via Scroll
              # This handles cases where vector/embedding quality is low but name is known
              try:
-                 scroll_result = self.qdrant.client.scroll(
-                     collection_name=target_collection,
-                     scroll_filter=models.Filter(
-                         must=[
-                             models.FieldCondition(
-                                 key="name",
-                                 match=models.MatchValue(value=strain_name)
-                             )
-                         ]
-                     ),
-                     limit=1,
-                     with_payload=True
-                 )
-                 if scroll_result[0]:
-                     start_node_id = scroll_result[0][0].id
-                     start_payload = scroll_result[0][0].payload
-                     logger.info(f"Lineage: Found '{strain_name}' via exact name fallback.")
+                 potential_names = [strain_name]
+                 suffixes = [" Auto", " Automatic", " Feminized", " Fem"]
+                 for suffix in suffixes:
+                    if strain_name.lower().endswith(suffix.lower()):
+                         potential_names.append(strain_name[0:-len(suffix)].strip())
+                 
+                 for name_variant in potential_names:
+                     scroll_result = self.qdrant.client.scroll(
+                         collection_name=target_collection,
+                         scroll_filter=models.Filter(
+                             must=[
+                                 models.FieldCondition(
+                                     key="name",
+                                     match=models.MatchValue(value=name_variant)
+                                 )
+                             ]
+                         ),
+                         limit=1,
+                         with_payload=True
+                     )
+                     if scroll_result[0]:
+                         start_node_id = scroll_result[0][0].id
+                         start_payload = scroll_result[0][0].payload
+                         logger.info(f"Lineage: Found '{strain_name}' via variant '{name_variant}'.")
+                         break
              except Exception as e:
                  logger.warning(f"Lineage fallback search failed: {e}")
 
@@ -299,7 +307,7 @@ class KnowledgeGraphService:
         # 2. BFS Traversal
         while queue:
             # Safety Break: Prevent graph explosion (UI Freeze protection)
-            if len(nodes) > 60:
+            if len(nodes) > 200:
                 logger.warning(f"Lineage: Graph expansion limit reached for {strain_name}")
                 break
 
