@@ -18,13 +18,18 @@ class KnowledgeGraphService:
         self._lineage_cache = {} # (strain_name, depth) -> (timestamp, result)
         self._cache_ttl = 300 # 5 minutes
 
-    async def add_entity_with_resolution(self, name: str, type: str, description: str, collection_name: str = None) -> str:
+    async def add_entity_with_resolution(self, name: str, type: str, description: str, collection_name: str = None, use_384_dim: bool = False) -> str:
         """
         Add an entity to the graph with resolution (deduplication).
+        If use_384_dim is True, uses the smaller embedding model (all-MiniLM-L6-v2) suitable for botanical_entities.
         """
         # Create semantic embedding for the entity
         text_to_embed = f"{name}: {description}"
-        vector = await self.embedder.embed_query(text_to_embed)
+        
+        if use_384_dim:
+             vector = await self.embedder.embed_query_384(text_to_embed)
+        else:
+             vector = await self.embedder.embed_query(text_to_embed)
         
         # 1. Entity Resolution: Check for existing similar entities within the specific collection
         existing = self.qdrant.search_entities(vector, limit=1, score_threshold=0.92, collection_name=collection_name)

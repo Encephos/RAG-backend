@@ -76,7 +76,8 @@ async def main():
                     name=strain_name,
                     type="Strain",
                     description=description,
-                    collection_name=collection
+                    collection_name=collection,
+                    use_384_dim=True
                 )
                 
                 # 2. Update Payload (Metadata)
@@ -109,7 +110,8 @@ async def main():
                         name=parent_name,
                         type="Strain", # Assume parent is strain
                         description=f"Parent strain of {strain_name}",
-                        collection_name=collection
+                        collection_name=collection,
+                        use_384_dim=True
                     )
                     
                     # Add Relation: Strain -> bred_from -> Parent
