@@ -156,25 +156,63 @@ class RagService:
         """
         logger.info(f"Processing query: {query}")
         
-        # 1. Vector Search (Document Chunks)
-        query_vector = await self.embedding_service.embed_query(query)
+        # 1. Vector Search (Document Chunks) - DUAL STRATEGY
+        # We query BOTH the new 768-dim collection and the old 384-dim legacy collection
+        # to ensure maximum recall. The Reranker will pick the best results.
         
-        # Initial retrieval with larger limit
-        initial_results = self.qdrant_service.search(
-            vector=query_vector, 
-            limit=settings.INITIAL_RETRIEVAL_LIMIT,
-            query_text=query # Pass text for Hybrid Search
-        )
-        logger.debug(f"Retrieved {len(initial_results)} document chunks (pre-rerank).")
+        results_768 = []
+        results_384 = []
         
-        # Rerank Results
-        ranked_results = self.rerank_service.rerank(query, initial_results, top_k=settings.FINAL_K)
+        # A. Search 768-dim (Primary)
+        try:
+            query_vector = await self.embedding_service.embed_query(query)
+            results_768 = self.qdrant_service.search(
+                vector=query_vector, 
+                limit=settings.INITIAL_RETRIEVAL_LIMIT,
+                query_text=query # Pass text for Hybrid Search
+            )
+        except Exception as e:
+            logger.error(f"RAG: 768-dim search failed: {e}")
 
-        # 2. Graph Retrieval (Semantic Entry Points)
+        # B. Search 384-dim (Legacy/Backup)
+        try:
+            query_vector_384 = await self.embedding_service.embed_query_384(query)
+            results_384 = self.qdrant_service.search(
+                vector=query_vector_384,
+                limit=settings.INITIAL_RETRIEVAL_LIMIT,
+                collection_alias="master_legacy",
+                query_text=query
+            )
+        except Exception as e:
+             logger.error(f"RAG: 384-dim search failed: {e}")
+             
+        # Combine Results
+        combined_results = results_768 + results_384
+        
+        # Deduplicate by Text (simple) or ID if possible
+        # We use a dict keyed by text content to remove exact duplicates
+        unique_results = {res["text"]: res for res in combined_results}.values()
+        unique_results_list = list(unique_results)
+        
+        logger.debug(f"Retrieved {len(results_768)} (768-dim) + {len(results_384)} (384-dim) chunks. Unique: {len(unique_results_list)}")
+        
+        if not unique_results_list:
+             logger.warning(f"No results found for query: {query}")
+             return {
+                 "answer": "Ich konnte leider keine relevanten Informationen in der Datenbank finden.",
+                 "context": [],
+                 "graph_context": {"summary": ""}
+             }
+
+        # 2. Rerank Results (The Cross-Encoder decides relevance)
+        ranked_results = self.rerank_service.rerank(query, unique_results_list, top_k=settings.FINAL_K)
+
+        # 3. Graph Retrieval (Semantic Entry Points)
+        # We can also check legacy graph if needed, but for now standard graph retrieval
         graph_context_str = await self.kg_service.get_graph_context(query)
         logger.debug("Retrieved graph context.")
 
-        # 3. Generate Answer using LLM
+        # 4. Generate Answer using LLM
         context_text = "\n\n".join([r["text"] for r in ranked_results])
         answer = await self.llm_service.generate_answer(query, context_text, graph_context_str)
         logger.info("Generated answer.")

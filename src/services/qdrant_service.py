@@ -24,7 +24,12 @@ class QdrantService:
             "botanical": "botanical_knowledge_768",
             "pharmacological": "pharmacological_knowledge_768",
             "studies": "studies_data_768",
-            "production": "production_knowledge_768"
+            "production": "production_knowledge_768",
+            # Legacy Fallback Collections (384-dim)
+            "master_legacy": "master_collection",
+            "botanical_legacy": "botanical_knowledge",
+            "pharmacological_legacy": "pharmacological_knowledge",
+            "studies_legacy": "studies_data"
         }
 
         # Define Entity Collections Map
