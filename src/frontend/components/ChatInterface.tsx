@@ -95,6 +95,40 @@ export default function ChatInterface() {
         return () => clearInterval(interval);
     }, [history.length, activeSession]); // Added activeSession to dependencies
 
+    // Detect scroll to bottom to enable "stick to bottom" behavior
+    const [isAtBottom, setIsAtBottom] = useState(true);
+
+    const scrollToBottom = () => {
+        if (scrollRef.current) {
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }
+    };
+
+    // Robust Auto-scroll observer
+    useEffect(() => {
+        if (!scrollRef.current) return;
+
+        const observer = new MutationObserver(() => {
+            if (isAtBottom) {
+                scrollToBottom();
+            }
+        });
+
+        observer.observe(scrollRef.current, { childList: true, subtree: true, attributes: true });
+
+        // Initial scroll
+        scrollToBottom();
+
+        return () => observer.disconnect();
+    }, [history, loading, isAtBottom]);
+
+    const handleScroll = () => {
+        if (!scrollRef.current) return;
+        const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+        const atBottom = scrollHeight - scrollTop - clientHeight < 100;
+        setIsAtBottom(atBottom);
+    };
+
     // Auto-scroll to bottom
     useEffect(() => {
         if (scrollRef.current) {
@@ -183,9 +217,9 @@ export default function ChatInterface() {
     ];
 
     return (
-        <div className="flex flex-col h-full relative max-w-5xl mx-auto w-full">
+        <div className="flex flex-col h-full relative max-w-5xl mx-auto w-full bg-white">
             {/* Header with Dropdown and Stats */}
-            <div className="absolute top-0 left-0 right-0 p-6 z-20 flex justify-between items-start" ref={dropdownRef}>
+            <div className="flex-none p-6 z-20 flex justify-between items-start bg-white/95 backdrop-blur-sm sticky top-0 border-b border-gray-100" ref={dropdownRef}>
                 <button
                     onClick={() => setIsDropdownOpen(!isDropdownOpen)}
                     className="flex items-center gap-2 text-gray-700 font-semibold cursor-pointer hover:bg-gray-100 p-2 rounded-lg transition-colors group"
@@ -233,7 +267,11 @@ export default function ChatInterface() {
             </div>
 
             {/* Messages Area */}
-            <div ref={scrollRef} className="flex-1 overflow-y-auto w-full scroll-smooth pb-40 pt-24 px-4 md:px-20">
+            <div
+                ref={scrollRef}
+                onScroll={handleScroll}
+                className="flex-1 overflow-y-auto w-full scroll-smooth px-4 md:px-20 pb-4"
+            >
                 {history.length === 0 ? (
                     <div className="flex flex-col h-full items-start justify-center max-w-4xl mx-auto pb-20 fade-in animate-in duration-700">
                         <h1 className="text-6xl font-medium tracking-tight mb-2">
@@ -380,7 +418,7 @@ export default function ChatInterface() {
             </div>
 
             {/* Input Area (Bottom Fixed) */}
-            <div className="absolute bottom-0 left-0 w-full p-6 bg-gradient-to-t from-white via-white to-transparent pt-20 z-30 pointer-events-none">
+            <div className="flex-none w-full p-6 pt-2 bg-white border-t border-gray-100 z-40 sticky bottom-0">
 
                 {/* Council Member Selector (Visible only in Council Mode) */}
                 {activeSession === 'Nexus Council' && (
