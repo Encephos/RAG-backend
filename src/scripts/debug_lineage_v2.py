@@ -18,12 +18,12 @@ async def main():
     
     # 1. Vector Search Raw Score
     embedding = await kg.embedder.embed_query_384(query)
-    results = kg.qdrant.client.search(
+    results = kg.qdrant.client.query_points(
         collection_name=collection,
-        query_vector=embedding,
+        query=embedding,
         limit=5,
         with_payload=True
-    )
+    ).points
     
     print(f"Vector Search for '{query}':")
     for hit in results:
