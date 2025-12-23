@@ -239,7 +239,7 @@ class KnowledgeGraphService:
         else:
             query_vector = await self.embedder.embed_query(strain_name)
             
-        start_points = self.qdrant.search_entities(query_vector, limit=1, score_threshold=0.80, collection_name=target_collection)
+        start_points = self.qdrant.search_entities(query_vector, limit=1, score_threshold=0.70, collection_name=target_collection)
         
         start_node_id = None
         start_payload = None
@@ -298,6 +298,11 @@ class KnowledgeGraphService:
         
         # 2. BFS Traversal
         while queue:
+            # Safety Break: Prevent graph explosion (UI Freeze protection)
+            if len(nodes) > 60:
+                logger.warning(f"Lineage: Graph expansion limit reached for {strain_name}")
+                break
+
             current_id, current_depth = queue.pop(0)
             
             if current_depth >= depth:
