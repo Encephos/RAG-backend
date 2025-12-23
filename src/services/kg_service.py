@@ -307,8 +307,9 @@ class KnowledgeGraphService:
                 target_id = rel.get("target_id")
                 rel_type = rel.get("type", "").lower()
                 
-                # Filter for lineage-relevant relations
-                if rel_type in ["bred_from", "parent_of", "hybrid_of", "child_of", "cross_of"]:
+                # Filter for lineage-relevant relations (Ancestors only)
+                # We exclude 'parent_of' to prevent recursive descent into all children (Use Step 3 for immediate children)
+                if rel_type in ["bred_from", "has_parent", "hybrid_of", "child_of", "cross_of"]:
                      
                      # Add Logic: If bred_from -> target is Parent.
                      # We want to show the tree.
