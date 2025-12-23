@@ -19,12 +19,12 @@ async def main():
     
     # 1. Vector Search
     embedding = await kg_service.embedder.embed_query_384(query)
-    search_results = kg_service.qdrant.client.search(
+    search_results = kg_service.qdrant.client.query_points(
         collection_name=collection,
-        query_vector=embedding,
+        query=embedding,
         limit=5,
         with_payload=True
-    )
+    ).points
     
     print("\n--- Vector Search Results ---")
     for hit in search_results:
