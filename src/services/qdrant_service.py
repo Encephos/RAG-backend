@@ -29,7 +29,8 @@ class QdrantService:
             "master_legacy": "master_collection",
             "botanical_legacy": "botanical_knowledge",
             "pharmacological_legacy": "pharmacological_knowledge",
-            "studies_legacy": "studies_data"
+            "studies_legacy": "studies_data",
+            "strain": "strain_lineage_data"
         }
 
         # Define Entity Collections Map
@@ -63,6 +64,17 @@ class QdrantService:
                     )
                 else:
                     logger.info(f"Vector Collection {col_name} already exists.")
+            
+            # Ensure Strain Collection (384 dim)
+            if "strain_lineage_data" not in existing_names:
+                logger.info("Creating strain lineage collection (384 dim)")
+                self.client.create_collection(
+                    collection_name="strain_lineage_data",
+                    vectors_config=models.VectorParams(
+                        size=384,
+                        distance=models.Distance.COSINE
+                    )
+                )
                 
             # Ensure all entity collections exist (Graphs)
             for key, col_name in self.entity_collections.items():
@@ -297,3 +309,26 @@ class QdrantService:
                 raise Exception(f"Qdrant Snapshot Upload Failed: {response.text}")
                 
         return target_collection
+
+    def get_strain_lineage(self, strain_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve strain lineage data by exact name match (normalized).
+        Uses the 384-dim strain_lineage_data collection.
+        """
+        try:
+            # We generate the UUID deterministically as per ingestion strategy
+            name_normalized = strain_name.strip().lower()
+            doc_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, name_normalized))
+            
+            points = self.client.retrieve(
+                collection_name="strain_lineage_data",
+                ids=[doc_id]
+            )
+            
+            if points:
+                return points[0].payload
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error retrieving strain lineage for {strain_name}: {e}")
+            return None

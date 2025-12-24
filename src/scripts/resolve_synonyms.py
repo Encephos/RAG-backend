@@ -16,18 +16,8 @@ async def main():
     
     # 1. Define Known Synonyms / Duplicates to Merge
     # Format: "Slave (Merge From)" -> "Master (Merge Into)"
-    # The Master should be the more descriptive/standard name.
-    synonym_map = {
-        "GSC": "Girl Scout Cookies",
-        "Star Killer": "Starkiller",
-        "Platinum Girl Scout Cookies": "Platinum Cookies", # Or vice versa? "Platinum Cookies" is shorter/cleaner? Screenshot shows "Platinum Girl Scout ..." truncated.
-        "Gelato #33": "Gelato 33", 
-        "Gelato 33": "Gelato #33", # Wait need to pick one. Let's pick "Gelato 33" usually? Or keep hash? 
-        # Let's trust the screenshot: User sees "Starkiller" and "Star Killer".
-        # We will normalize by removing spaces for detection too.
-    }
     
-    # Specific merges requested/implied by screenshot
+    # Specific merges requested/implied by screenshot + Sour Diesel findings
     manual_merges = [
         ("GSC", "Girl Scout Cookies"),
         ("Star Killer", "Starkiller"),
@@ -36,12 +26,19 @@ async def main():
         ("Chemdawg", "Chemdog"),
         ("Gorilla Glue #4", "GG4"),
         ("Gorilla Glue 4", "GG4"),
+        # Sour Diesel Fixes
+        ("(Northern light", "Northern Lights"),
+        ("Hawaiian)", "Hawaiian"),
+        ("diesel", "Diesel"), 
+        ("Unknown Strain", "Unknown"),
+        ("Unknown Ruderalis", "Ruderalis")
     ]
     
     print("--- SYNONYM RESOLUTION STARTED ---")
     
     # 2. Execute Merges
     count = 0
+    renamed_count = 0
     
     for slave_name, master_name in manual_merges:
         print(f"\nProcessing pair: '{slave_name}' -> '{master_name}'")
@@ -62,15 +59,29 @@ async def main():
             with_payload=True
         )[0]
         
-        if not m_res:
-            print(f"  Master '{master_name}' not found. Skipping.")
-            continue
         if not s_res:
             print(f"  Slave '{slave_name}' not found. Skipping.")
             continue
-            
-        master = m_res[0]
+
         slave = s_res[0]
+        
+        # CASE 1: Rename (Slave exists, Master does not)
+        if not m_res:
+            print(f"  Master '{master_name}' not found. RENAMING '{slave_name}' -> '{master_name}'")
+            new_payload = slave.payload
+            new_payload["name"] = master_name
+            
+            client.set_payload(
+                collection_name=collection,
+                payload=new_payload,
+                points=[slave.id]
+            )
+            renamed_count += 1
+            print(f"    Renamed successfully.")
+            continue
+            
+        # CASE 2: Merge (Both exist)
+        master = m_res[0]
         
         if master.id == slave.id:
             print("  Same entity. Skipping.")
@@ -128,8 +139,8 @@ async def main():
         client.delete(collection_name=collection, points_selector=models.PointIdsList(points=[slave.id]))
         print(f"    Deleted '{slave_name}'")
         count += 1
-
-    print(f"\nResolution Complete. Merged {count} pairs.")
-
+ 
+    print(f"\nResolution Complete. Merged {count} pairs. Renamed {renamed_count} items.")
+ 
 if __name__ == "__main__":
     asyncio.run(main())
