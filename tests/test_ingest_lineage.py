@@ -16,8 +16,19 @@ def ingester():
         return StrainIngester()
 
 def test_normalize_name(ingester):
+    # Basic
     assert ingester.normalize_name("  White Widow  ") == "white widow"
     assert ingester.normalize_name(None) is None
+    
+    # Pheno brackets
+    assert ingester.normalize_name("OG Kush [Larry Clone]") == "og kush"
+    
+    # IBL / redundant suffixes
+    assert ingester.normalize_name("Sour Diesel IBL(IBL)") == "sour diesel"
+    assert ingester.normalize_name("Sour Diesel IBL") == "sour diesel"
+    
+    # Brackets in middle?
+    assert ingester.normalize_name("Trainwreck [Arcata Cut] x Trinity") == "trainwreck x trinity"
 
 def test_generate_uuid(ingester):
     u1 = ingester.generate_uuid("white widow")

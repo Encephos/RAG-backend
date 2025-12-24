@@ -43,9 +43,34 @@ VECTOR_SIZE = 384
 
 # Helper function needs to be top-level for pickling in multiprocessing
 def normalize_name(name: Any) -> Optional[str]:
-    if not name or pd.isna(name):
+    if pd.isna(name) or not name:
         return None
-    return str(name).strip().lower()
+    # Aggressive normalization:
+    # 1. Lowercase
+    n = str(name).lower().strip()
+    # 2. Remove text in brackets [] or parens () ONLY IF they contain "clone", "cut", "pheno", "ibl"
+    # Actually user wants to merge "Sour Diesel IBL(IBL)" -> "Sour Diesel IBL".
+    # And "OG Kush[Larry Clone]" -> "OG Kush".
+    # Let's remove ALL content in [] as that is usually pheno info in Seedfinder.
+    n = re.sub(r'\[.*?\]', '', n)
+    # Remove (IBL) specifically or other noise? (IBL) is a breeding term.
+    # "Sour Diesel IBL" vs "Sour Diesel IBL(IBL)" -> remove (IBL) at end.
+    n = re.sub(r'\s*\(ibl\)$', '', n)
+    n = re.sub(r'\s*\(.*?\)$', '', n) # Remove ALL parens? Might match "Gelato (41)" -> Gelato. 
+    # Maybe too aggressive? "Zkittlez (Grape Ape x Grapefruit)" -> Zkittlez. NO!
+    # Parents are often in parens in descriptions, but not in NAME usually unless it's a cross name.
+    # Safest: Remove [] definitely. Remove specific suffixes like (IBL), (Cut).
+    
+    # Revised: Remove all [] (Phenos)
+    n = re.sub(r'\[.*?\]', '', n)
+    
+    # Remove specific noise pattern
+    n = n.replace('(ibl)', '').replace(' ibl', '') # Merge IBL variants
+    
+    # Cleanup spaces
+    n = re.sub(r'\s+', ' ', n).strip()
+    
+    return n if n else None
 
 def generate_uuid(name: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_DNS, name))
