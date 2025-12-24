@@ -90,10 +90,12 @@ class StrainIngester:
             logger.error(f"File not found: {filepath}")
             return
 
-        df = pd.read_csv(filepath)
-        # Expected columns: Strain, Breeder, Description, parent_tree, Type (maybe)
-        # Check actual columns from task mapping or inspection
-        # scrape.csv: Strain, Breeder, Description, parent_tree, (others?)
+        # scrape.csv is semicolon delimited and may have bad lines
+        try:
+            df = pd.read_csv(filepath, sep=';', on_bad_lines='warn', engine='python')
+        except Exception as e:
+            logger.error(f"Failed to read {filepath} with pandas: {e}")
+            return
         
         for _, row in tqdm(df.iterrows(), total=len(df), desc="Primary Ingest"):
             raw_name = row.get("Strain")
