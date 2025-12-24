@@ -32,67 +32,99 @@ export default function ScientificLineageTree({ data, onNodeClick, selectedNodeI
     // Build Hierarchy Helper
     // For Ancestors: Target -> Parents
     // For Descendants: Target -> Children
+    // Recursive Tree Builder (Converts Graph -> Tree with duplication for shared nodes)
     const buildTreeData = (nodes: any[], links: any[], rootId: string, direction: 'ancestors' | 'descendants') => {
         const rootNode = nodes.find(n => n.id === rootId);
         if (!rootNode) return null;
 
-        // Deep clone to avoid mutating shared refs if we run this twice
-        const nodeMap = new Map(nodes.map(n => [n.id, { ...n, children: [] }]));
+        // Optimized Graph Map for quick lookups
+        // Map<SourceID, TargetIDs[]>
+        const adj = new Map<string, string[]>();
 
         links.forEach(link => {
-            const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
-            const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+            const s = typeof link.source === 'object' ? link.source.id : link.source;
+            const t = typeof link.target === 'object' ? link.target.id : link.target;
 
-            // Logic for Ancestors:
-            // "White Widow" (Source/Child) <- bred from <- "Brazil Sativa" (Target/Parent)
-            // Visual Tree: Root (White Widow) -> Child (Brazil Sativa) [Right Side]
-            // Matches: sourceId (White Widow) -> targetId (Brazil Sativa)
+            // Logic matches original:
+            // Ancestors: Source(Child) -> Target(Parent). We traverse Source -> Target.
+            // Descendants: Target(Parent) -> Source(Child). We traverse Target -> Source.
 
             if (direction === 'ancestors') {
-                // We want Target -> Parent logic
-                // If data link says: Source (Child) -> Target (Parent)
-                // Then hierarchy: Node(Source).children.push(Node(Target))
-                if (sourceId && targetId && nodeMap.has(sourceId) && nodeMap.has(targetId)) {
-                    // Check relation type or assume standard link direction from API?
-                    // API returns: Bred From Target. So Source is Child.
-                    // Filter only ancestor links? 
-                    // Or rely on the 'group' logic?
-                    // Let's rely on nodeMap connectivity from root.
-                    const parent = nodeMap.get(sourceId);
-                    const child = nodeMap.get(targetId);
-                    // Prevent cyclic or wrong-way links?
-                    // Only add if child is NOT 'Descendant' group?
-                    if (activeLinkStr(link, 'ancestor')) {
-                        parent?.children.push(child);
-                    }
+                // We are at Source (Child), we want to find Targets (Parents)
+                // Filter "ancestor" valid links
+                if (activeLinkStr(link, nodes, 'ancestor')) {
+                    if (!adj.has(s)) adj.set(s, []);
+                    adj.get(s)?.push(t);
                 }
             } else {
-                // Logic for Descendants (Left Side)
-                // We want Target -> Child logic
-                // API Link: Source (Child) -> Target (StartNode/Parent)
-                // We want: StartNode (Parent) -> Child
-                // So: Node(Target).children.push(Node(Source))
-                if (sourceId && targetId && nodeMap.has(sourceId) && nodeMap.has(targetId)) {
-                    if (activeLinkStr(link, 'descendant')) {
-                        const parent = nodeMap.get(targetId); // Start Node
-                        const child = nodeMap.get(sourceId);  // Descendant
-                        parent?.children.push(child);
-                    }
+                // Descendants: We are at Target(Parent), we want Source(Child)
+                if (activeLinkStr(link, nodes, 'descendant')) {
+                    if (!adj.has(t)) adj.set(t, []);
+                    adj.get(t)?.push(s);
                 }
             }
         });
 
-        return nodeMap.get(rootId);
+        // Recursive Build
+        // Limit depth to avoid massive trees if logic fails
+        const MAX_DEPTH = 20;
+
+        const build = (currentId: string, depth: number, path: Set<string>): any => {
+            const nodeData = nodes.find(n => n.id === currentId);
+            if (!nodeData) return null; // Should not happen
+
+            // Cycle Check
+            if (path.has(currentId)) {
+                return {
+                    ...nodeData,
+                    id: `${currentId}-cycle-${Math.random()}`, // Unique ID for d3 to treat as separate leaf
+                    label: `${nodeData.label} (Cycle)`,
+                    children: []
+                };
+            }
+
+            if (depth > MAX_DEPTH) {
+                return {
+                    ...nodeData,
+                    id: `${currentId}-maxdepth-${Math.random()}`,
+                    label: `${nodeData.label} (...)`,
+                    children: []
+                };
+            }
+
+            const childrenIds = adj.get(currentId) || [];
+
+            // Recurse
+            const newPath = new Set(path);
+            newPath.add(currentId);
+
+            const children = childrenIds
+                .map(cid => build(cid, depth + 1, newPath))
+                .filter(c => c !== null);
+
+            return {
+                ...nodeData,
+                // Important: Clone ID if it appears multiple times in tree? 
+                // d3.hierarchy requires unique IDs if using id accessor? 
+                // Actually d3.hierarchy doesn't strictly require unique IDs, but d3.tree might behave better.
+                // But for React keys in rendering, we assume d3 layout.
+                // Let's keep original ID but if it appears twice, our React key logic needs to use hierarchy-generated ids (like d3 logic does).
+                // However, let's keep it simple.
+                children: children
+            };
+        };
+
+        return build(rootId, 0, new Set());
     };
 
-    const activeLinkStr = (link: any, dir: 'ancestor' | 'descendant') => {
+    const activeLinkStr = (link: any, nodes: any[], dir: 'ancestor' | 'descendant') => {
         // Simple heuristic: 
         // Ancestor: Target of link should be Ancestor/Inferred/Relative
         // Descendant: Source of link should be Descendant
         // (Based on how we constructed links in backend)
 
-        const targetGroup = typeof link.target === 'object' ? link.target.group : (data.nodes.find((n: any) => n.id === link.target)?.group);
-        const sourceGroup = typeof link.source === 'object' ? link.source.group : (data.nodes.find((n: any) => n.id === link.source)?.group);
+        const targetGroup = typeof link.target === 'object' ? link.target.group : (nodes.find((n: any) => n.id === link.target)?.group);
+        const sourceGroup = typeof link.source === 'object' ? link.source.group : (nodes.find((n: any) => n.id === link.source)?.group);
 
         if (dir === 'ancestor') {
             // Standard links: Child -> Parent. Parent is target.
