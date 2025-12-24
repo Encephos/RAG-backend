@@ -3,6 +3,7 @@ import sys
 import os
 import uuid
 from unittest.mock import MagicMock
+import multiprocessing
 
 # Allow import
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -14,6 +15,11 @@ sys.modules['qdrant_client.http'] = MagicMock()
 sys.modules['qdrant_client.http.models'] = MagicMock()
 
 sys.modules['sentence_transformers'] = MagicMock()
+
+# IMPORTANT: Fix for multiprocessing in tests/scripts when checking logic
+# We need to ensure we can import the script without it running immediately
+if __name__ == "__main__":
+    multiprocessing.freeze_support()
 
 from src.scripts.ingest_strain_lineage import StrainIngester
 
