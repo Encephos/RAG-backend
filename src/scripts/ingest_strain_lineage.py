@@ -1,460 +1,459 @@
 
-import pandas as pd
 import os
+import pandas as pd
 import glob
-import uuid
-import logging
-import re
-from typing import Dict, List, Any, Optional, Set, Tuple
-from tqdm import tqdm
-from sentence_transformers import SentenceTransformer
+from typing import List, Dict, Any, Optional, Set
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
-import sys
-import math
-from concurrent.futures import ProcessPoolExecutor, as_completed
-import multiprocessing
+from sentence_transformers import SentenceTransformer
+import uuid
+import logging
+from bs4 import BeautifulSoup
+import re
+from tqdm import tqdm
+from dotenv import load_dotenv
 
-# Add parent directory to path to allow imports from src
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
-from src.core.config import settings
-
-# Configure logging
+# Setup Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Constants
-CSV_FILES = [
-    'scrape_data/scrape/cannabis-strains-final.csv',
-    'scrape_data/scrape/cannabis.csv',
-    'scrape_data/scrape/cepas.csv',
-    'scrape_data/scrape/leafly_strain_data.csv',
-    'scrape_data/scrape/OCPDB.csv',
-    'scrape_data/scrape/results.csv', 
-    'scrape_data/scrape/scrape.csv',
-    'scrape_data/scrape/strainmaster.csv',
-    'scrape_data/scrape/strains-kushy_api.2017-11-14.csv',
-    'data/sources/all_strains_seedfinder.csv'
-]
+load_dotenv()
+
+# --- Config & Normalization ---
 
 COLLECTION_NAME = "strain_lineage_data"
-VECTOR_SIZE = 384
+EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2")
+QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
+QDRANT_PORT = int(os.getenv("QDRANT_PORT", 6333))
 
-# Helper function needs to be top-level for pickling in multiprocessing
 def normalize_name(name: Any) -> Optional[str]:
     if pd.isna(name) or not name:
         return None
     # Aggressive normalization:
-    # 1. Lowercase
     n = str(name).lower().strip()
-    # 2. Remove text in brackets [] or parens () ONLY IF they contain "clone", "cut", "pheno", "ibl"
-    # Actually user wants to merge "Sour Diesel IBL(IBL)" -> "Sour Diesel IBL".
-    # And "OG Kush[Larry Clone]" -> "OG Kush".
-    # Let's remove ALL content in [] as that is usually pheno info in Seedfinder.
+    # Remove text in brackets [] (phenos)
     n = re.sub(r'\[.*?\]', '', n)
-    # Remove (IBL) specifically or other noise? (IBL) is a breeding term.
-    # "Sour Diesel IBL" vs "Sour Diesel IBL(IBL)" -> remove (IBL) at end.
-    n = re.sub(r'\s*\(ibl\)$', '', n)
-    n = re.sub(r'\s*\(.*?\)$', '', n) # Remove ALL parens? Might match "Gelato (41)" -> Gelato. 
-    # Maybe too aggressive? "Zkittlez (Grape Ape x Grapefruit)" -> Zkittlez. NO!
-    # Parents are often in parens in descriptions, but not in NAME usually unless it's a cross name.
-    # Safest: Remove [] definitely. Remove specific suffixes like (IBL), (Cut).
-    
-    # Revised: Remove all [] (Phenos)
-    n = re.sub(r'\[.*?\]', '', n)
-    
     # Remove specific noise pattern
-    n = n.replace('(ibl)', '').replace(' ibl', '') # Merge IBL variants
-    
+    n = n.replace('(ibl)', '').replace(' ibl', '') 
     # Cleanup spaces
     n = re.sub(r'\s+', ' ', n).strip()
-    
     return n if n else None
 
 def generate_uuid(name: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_DNS, name))
 
-def parse_lineage_tree_static(parent_html: str, root_name: str) -> Tuple[Dict, Set]:
-    """Static version of lineage parsing for multiprocessing"""
-    if not parent_html or pd.isna(parent_html):
-            return {}, set()
-
-    if not parent_html.strip().lower().startswith("<li"):
-            parent_html = f"<li>{parent_html}</li>"
-
-    try:
-        from bs4 import BeautifulSoup, Tag
-    except ImportError:
-        return {}, set()
-
-    soup = BeautifulSoup(parent_html, "html.parser")
-    root_li = soup.find('li')
-    
-    tree_relations = {}
-    found_strains = {root_name} if root_name else set()
-    
-    def parse_node(element: Tag, current_name: str):
-            if not current_name: return
-            current_name_norm = normalize_name(current_name)
-            if not current_name_norm: return
-
-            found_strains.add(current_name_norm)
-            
-            ul = element.find('ul', recursive=False)
-            if not ul: return 
-            
-            for child in ul.children:
-                if child.name == 'ul':
-                    for inner_li in child.find_all('li'):
-                        if "»»»" in inner_li.get_text():
-                            links = inner_li.find_all('a')
-                            p_list = []
-                            for link in links:
-                                p_name = link.get_text(strip=True)
-                                if p_name and p_name != "Unknown Ruderalis":
-                                    p_norm = normalize_name(p_name)
-                                    if p_norm: p_list.append(p_norm)
-                            
-                            if p_list:
-                                existing = tree_relations.get(current_name_norm, [])
-                                tree_relations[current_name_norm] = list(set(existing + p_list))
-                                found_strains.update(p_list)
-                                break 
-                
-                elif child.name == 'li':
-                    li = child
-                    text = li.get_text()
-                    
-                    if "»»»" in text and not li.find('ul'):
-                        links = li.find_all('a')
-                        p_list = []
-                        for link in links:
-                            p_name = link.get_text(strip=True)
-                            if p_name and p_name != "Unknown Ruderalis":
-                                p_norm = normalize_name(p_name)
-                                if p_norm: p_list.append(p_norm)
-                        
-                        if p_list:
-                            existing = tree_relations.get(current_name_norm, [])
-                            tree_relations[current_name_norm] = list(set(existing + p_list))
-                            found_strains.update(p_list)
-                    
-                    if li.find('ul'):
-                        # Iterate children to build FULL name (e.g. "Gelato x Orange")
-                        # Stop at the nested 'ul'
-                        name_parts = []
-                        for sub in li.children:
-                            if sub.name == 'ul': break
-                            if sub.name == 'a':
-                                name_parts.append(sub.get_text(strip=True))
-                            elif isinstance(sub, str) and sub.strip():
-                                name_parts.append(sub.strip())
-                            # Handle spans or other tags if any (rare in seedfinder simple lists)
-                            elif sub.name and sub.name != 'ul':
-                                name_parts.append(sub.get_text(strip=True))
-                        
-                        child_name = " ".join(name_parts).strip()
-
-                        if child_name and child_name != current_name:
-                            child_name_norm = normalize_name(child_name)
-                            if child_name_norm:
-                                existing = tree_relations.get(current_name_norm, [])
-                                if child_name_norm not in existing:
-                                    existing.append(child_name_norm)
-                                    tree_relations[current_name_norm] = existing
-                                
-                                parse_node(li, child_name)
-
-                    elif not li.find('ul') and "»»»" not in text:
-                        link = li.find('a')
-                        if link:
-                            p_name = link.get_text(strip=True)
-                            if p_name:
-                                p_norm = normalize_name(p_name)
-                                if p_norm:
-                                    existing = tree_relations.get(current_name_norm, [])
-                                    if p_norm not in existing:
-                                        existing.append(p_norm)
-                                        tree_relations[current_name_norm] = existing
-                                    found_strains.add(p_norm)
-
-    if root_li:
-            parse_node(root_li, root_name)
-            
-    return tree_relations, found_strains
-
-def process_chunk(chunk_data: List[Dict[str, Any]], filename: str) -> Dict[str, Dict]:
-    """Process a list of rows in a separate process"""
-    results = {}
-    
-    for row in chunk_data:
-        name = None
-        strain_data = {
-            "source_files": [filename],
-            "parents": [],
-            "description": "",
-            "breeders": set(),
-            "type": "",
-            "effects": [],
-            "html_tree": None,
-            "inferred_ancestors": [] # Store inferred nodes here
-        }
-
-        # --- Extraction Logic ---
-        if 'seedfinder' in filename:
-            name = normalize_name(row.get('Name der Strain'))
-            p1 = normalize_name(row.get('Eltern 1'))
-            p2 = normalize_name(row.get('Eltern 2'))
-            if p1: strain_data['parents'].append(p1)
-            if p2: strain_data['parents'].append(p2)
-            br = row.get('Breeder')
-            if br and not pd.isna(br): strain_data['breeders'].add(str(br).strip())
-            strain_data['type'] = row.get('Typ', '')
-
-        elif 'scrape.csv' in filename:
-            name = normalize_name(row.get('strain_name') or row.get('Name'))
-            parent_html = row.get('parent_tree')
-            
-            if parent_html:
-                strain_data['html_tree'] = parent_html
-                # Use static parsing function
-                relations, found_strains = parse_lineage_tree_static(parent_html, name)
-                
-                if name in relations:
-                    strain_data['parents'] = relations[name]
-                
-                for found in found_strains:
-                    if found == name: continue
-                    # Collect inferred ancestor data
-                    strain_data["inferred_ancestors"].append({
-                        "name": found,
-                        "parents": relations.get(found, [])
-                    })
-            
-            if not strain_data['parents'] and 'parents' in row:
-                    parents_str = str(row.get('parents', ''))
-                    if parents_str and parents_str != 'nan':
-                        strain_data['parents'] = [normalize_name(p) for p in parents_str.split(',')]
-                        
-            br = row.get('breeder') or row.get('Breeder')
-            if br and not pd.isna(br): strain_data['breeders'].add(str(br).strip())
-
-        elif 'kushy' in filename:
-            name = normalize_name(row.get('name'))
-            strain_data['description'] = row.get('description', '')
-            br = row.get('breeder')
-            if br and not pd.isna(br): strain_data['breeders'].add(str(br).strip())
-            
-        else:
-            cols = row.keys()
-            # Generic fallback (keys are present in the row dict)
-            name_col = next((c for c in cols if 'name' in c.lower() and 'filename' not in c.lower()), None)
-            if not name_col and 'Strain' in cols: name_col = 'Strain'
-            
-            if name_col:
-                name = normalize_name(row[name_col])
-                desc_col = next((c for c in cols if 'desc' in c.lower()), None)
-                if desc_col: strain_data['description'] = row[desc_col]
-                br_col = next((c for c in cols if 'breeder' in c.lower()), None)
-                if br_col:
-                    br = row[br_col]
-                    if br and not pd.isna(br): strain_data['breeders'].add(str(br).strip())
-
-        if name:
-            results[name] = strain_data
-            
-    return results
-
 class StrainIngester:
     def __init__(self):
+        self.qdrant = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+        self.model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+        
+        # In-memory storage: normalized_name -> strain_data_dict
         self.strains: Dict[str, Dict[str, Any]] = {}
-        self.encoder = SentenceTransformer('all-MiniLM-L6-v2')
-        self.client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
-
-    # ... normalize_name, generate_uuid, parse_lineage_tree moved to top level/static ...
-    
-    # Wrapper for instance to use static method if needed, but we use top level in multiprocessing
-    def normalize_name(self, name): return normalize_name(name)
-    def generate_uuid(self, name): return generate_uuid(name)
-    def parse_lineage_tree(self, h, r): return parse_lineage_tree_static(h, r)
-
-    def load_data(self):
-        logger.info("Loading CSV files with Multiprocessing...")
         
-        # Adjust pool size
-        num_workers = min(multiprocessing.cpu_count(), 8)
-        pool = ProcessPoolExecutor(max_workers=num_workers)
-        futures = []
+        # Statistics
+        self.stats = {"primary": 0, "secondary": 0, "new_from_secondary": 0, "merged": 0}
 
-        for file_path in CSV_FILES:
-            if not os.path.exists(file_path):
-                logger.warning(f"File not found: {file_path}")
-                continue
-
-            try:
-                sep = ';' if 'seedfinder' in file_path else ','
-                if 'scrape.csv' in file_path: sep = ';' 
-                
-                df = pd.read_csv(file_path, on_bad_lines='skip', low_memory=False, sep=sep)
-                filename = os.path.basename(file_path)
-                logger.info(f"Loaded {filename}, processing {len(df)} rows...")
-                
-                # Convert DF to list of dicts for chunking
-                rows = df.to_dict('records')
-                chunk_size = 2000
-                
-                # Submit chunks
-                for i in range(0, len(rows), chunk_size):
-                    chunk = rows[i:i + chunk_size]
-                    futures.append(pool.submit(process_chunk, chunk, filename))
-                
-            except Exception as e:
-                logger.error(f"Error reading {file_path}: {e}")
-
-        # Gather results
-        logger.info(f"Waiting for {len(futures)} tasks to complete...")
-        for future in tqdm(as_completed(futures), total=len(futures)):
-            try:
-                chunk_results = future.result()
-                self._merge_chunk_results(chunk_results)
-            except Exception as e:
-                logger.error(f"Chunk processing failed: {e}")
-        
-        pool.shutdown()
-
-    def _merge_chunk_results(self, chunk_results: Dict[str, Dict]):
-        for name, data in chunk_results.items():
-            self._merge_strain_data(name, data)
+    def _init_strain_entry(self, name: str, normalized_name: str, source_type: str) -> Dict[str, Any]:
+        """Creates a fresh strain entry skeleton."""
+        return {
+            "name": name, # Keep original casing of first finding? Or Title Case?
+            "normalized_name": normalized_name,
+            "uuid": generate_uuid(normalized_name),
+            "description": "",
+            "breeders": set(),
+            "lineage": {}, # Store parent structure
+            "html_tree": None, # Raw seedfinder tree
+            "type": None, # Indica/Sativa
             
-            # Handle inferred ancestors carried in data
-            if "inferred_ancestors" in data:
-                for inf in data["inferred_ancestors"]:
-                    inf_data = {
-                        "source_files": [data['source_files'][0] + " (inferred)"],
-                        "parents": inf['parents'],
-                        "description": "Inferred from lineage tree",
-                        "breeders": set(),
-                        "type": "Inferred",
-                        "effects": [],
-                        "html_tree": None
-                    }
-                    self._merge_strain_data(inf['name'], inf_data)
-
-    def _merge_strain_data(self, name: str, new_data: Dict[str, Any]):
-        if name not in self.strains:
-            self.strains[name] = {
-                "name": name,
-                "uuid": generate_uuid(name),
-                "parents": [],
-                "breeders": set(),
-                "description": "",
-                "type": "",
-                "effects": [],
-                "sources": [],
-                 "html_tree": None
-            }
-        
-        existing = self.strains[name]
-        existing['sources'] = list(set(existing['sources'] + new_data['source_files']))
-        
-        if not existing['parents'] and new_data['parents']:
-            existing['parents'] = new_data['parents']
-        elif new_data['parents'] and ('seedfinder' in new_data['source_files'][0] or 'scrape.csv' in new_data['source_files'][0]):
-             existing['parents'] = list(set(existing['parents'] + new_data['parents']))
-        
-        if new_data['html_tree'] and not existing['html_tree']:
-            existing['html_tree'] = new_data['html_tree']
+            # Aggregate Fields (Lists for multiple values from different sources)
+            "thc": [],
+            "cbd": [],
+            "terpenes": set(),
+            "effects": set(),
+            "flavors": set(),
             
-        if new_data.get('breeders'):
-            existing['breeders'].update(new_data['breeders'])
+            # Management
+            "primary_source_loaded": (source_type == "primary"),
+            "sources": set()
+        }
 
-        if len(str(new_data['description'])) > len(str(existing['description'])):
-             existing['description'] = new_data['description']
+    def process_primary_source(self, filepath: str):
+        """Loads scrape.csv as the Source of Truth."""
+        logger.info(f"Loading Primary Source: {filepath}")
+        if not os.path.exists(filepath):
+            logger.error(f"File not found: {filepath}")
+            return
 
-    def resolve_references(self):
-        logger.info("Resolving lineage references...")
-        new_nodes = {}
-        for name, data in self.strains.items():
-            for p_name in data['parents']:
-                if not p_name: continue
-                if p_name not in self.strains and p_name not in new_nodes:
-                    new_nodes[p_name] = {
-                        "name": p_name,
-                        "uuid": generate_uuid(p_name),
-                        "parents": [],
-                        "breeders": set(["Unknown"]), 
-                        "description": "Auto-created parent node",
-                        "type": "Unknown",
-                        "effects": [],
-                        "sources": ["auto-generated"],
-                        "html_tree": None
-                    }
-        if new_nodes:
-            self.strains.update(new_nodes)
+        df = pd.read_csv(filepath)
+        # Expected columns: Strain, Breeder, Description, parent_tree, Type (maybe)
+        # Check actual columns from task mapping or inspection
+        # scrape.csv: Strain, Breeder, Description, parent_tree, (others?)
+        
+        for _, row in tqdm(df.iterrows(), total=len(df), desc="Primary Ingest"):
+            raw_name = row.get("Strain")
+            norm_name = normalize_name(raw_name)
+            if not norm_name: continue
+            
+            if norm_name not in self.strains:
+                self.strains[norm_name] = self._init_strain_entry(raw_name, norm_name, "primary")
+                self.stats["primary"] += 1
+            
+            entry = self.strains[norm_name]
+            
+            # Update Truth Data
+            entry["primary_source_loaded"] = True
+            entry["sources"].add("scrape.csv")
+            
+            if pd.notna(row.get("Breeder")):
+                entry["breeders"].add(str(row.get("Breeder")).strip())
+            
+            if pd.notna(row.get("Description")) and not entry["description"]:
+                 entry["description"] = str(row.get("Description")).strip()
+            
+            # HTML Tree logic
+            html = row.get("parent_tree")
+            if pd.notna(html) and html:
+                 entry["html_tree"] = html 
+                 # We parse this later or on-the-fly? 
+                 # Let's verify lineage extraction logic if needed, but for now store it.
+            
+            if pd.notna(row.get("Type")):
+                entry["type"] = str(row.get("Type")).strip()
 
-        for name, data in self.strains.items():
-            resolved_parents = []
-            for p_name in data['parents']:
-                if not p_name: continue
-                if p_name == name: continue
-                if p_name in self.strains:
-                    resolved_parents.append({
-                        "name": p_name,
-                        "id": self.strains[p_name]['uuid']
-                    })
-            data['resolved_parents'] = resolved_parents
+    def process_secondary_source(self, filepath: str, file_type: str):
+        """Generic handler for secondary files."""
+        logger.info(f"Loading Secondary Source: {filepath} ({file_type})")
+        if not os.path.exists(filepath):
+             logger.warning(f"File skipped (not found): {filepath}")
+             return
 
-    def ensure_collection(self):
-        logger.info(f"Ensuring Qdrant collection {COLLECTION_NAME} exists...")
         try:
-             collections = self.client.get_collections().collections
-             existing = [c.name for c in collections]
-             if COLLECTION_NAME not in existing:
-                self.client.create_collection(
-                    collection_name=COLLECTION_NAME,
-                    vectors_config=models.VectorParams(size=VECTOR_SIZE, distance=models.Distance.COSINE)
-                )
-        except Exception:
-             # Retry once
-             pass
+            df = pd.read_csv(filepath, low_memory=False) # low_memory=False for mixed types
+        except Exception as e:
+            logger.error(f"Failed to read {filepath}: {e}")
+            return
+
+        for _, row in tqdm(df.iterrows(), total=len(df), desc=f"Enrich: {file_type}"):
+            # 1. Determine Name Column based on file_type
+            raw_name = self._extract_name(row, file_type)
+            norm_name = normalize_name(raw_name)
+            if not norm_name: continue
+
+            # 2. Link or Create
+            if norm_name not in self.strains:
+                self.strains[norm_name] = self._init_strain_entry(raw_name, norm_name, "secondary")
+                self.stats["new_from_secondary"] += 1
+            else:
+                self.stats["merged"] += 1
+            
+            entry = self.strains[norm_name]
+            entry["sources"].add(os.path.basename(filepath))
+            
+            # 3. Enrich Data
+            self._enrich_entry(entry, row, file_type)
+
+    def _extract_name(self, row: pd.Series, file_type: str) -> Optional[str]:
+        if file_type == "cannabis-strains-final": return row.get("strain_name")
+        elif file_type == "cannabis": return row.get("Strain")
+        elif file_type == "cepas": return row.get("Cepa")
+        elif file_type == "leafly": return row.get("name")
+        elif file_type == "ocpdb": return row.get("Strain")
+        elif file_type == "results": return row.get("Sample Name")
+        elif file_type == "strainmaster": return row.get("Name")
+        elif file_type == "kushy": return row.get("name")
+        return None
+
+    def _enrich_entry(self, entry: Dict, row: pd.Series, file_type: str):
+        # Helper to safely add valid floats/strings
+        def add_val(target_list, val):
+            try:
+                if pd.notna(val):
+                    # Clean % signs or text
+                    v_str = str(val).replace('%', '').strip()
+                    v_float = float(v_str)
+                    if v_float > 0: target_list.append(v_float)
+            except: pass
+
+        def add_set(target_set, val):
+            if pd.notna(val):
+                target_set.add(str(val).strip())
+
+        # Mapping Logic
+        if file_type == "cannabis-strains-final":
+            add_val(entry["thc"], row.get("thc"))
+            add_val(entry["cbd"], row.get("cbd"))
+            add_set(entry["effects"], row.get("effect")) # Check if comma list?
+            if pd.notna(row.get("effect")):
+                for e in str(row.get("effect")).split(','): entry["effects"].add(e.strip())
+
+        elif file_type == "cannabis":
+             if pd.notna(row.get("Effects")):
+                 for e in str(row.get("Effects")).split(','): entry["effects"].add(e.strip())
+             if pd.notna(row.get("Flavor")):
+                 for f in str(row.get("Flavor")).split(','): entry["flavors"].add(f.strip())
+
+        elif file_type == "cepas":
+             add_val(entry["thc"], row.get("THC"))
+             add_val(entry["cbd"], row.get("CBD"))
+
+        elif file_type == "leafly":
+             add_val(entry["thc"], row.get("thc_level"))
+             add_set(entry["terpenes"], row.get("most_common_terpene"))
+             # Leafly has bool columns for effects (happy, relaxed, etc)
+             possible_effects = ["relaxed", "happy", "euphoric", "uplifted", "sleepy", "creative", "energetic", "focused"]
+             for eff in possible_effects:
+                 if row.get(eff) == 1 or str(row.get(eff)).lower() == 'true':
+                     entry["effects"].add(eff.capitalize())
+
+        elif file_type == "ocpdb":
+             add_val(entry["thc"], row.get("TotalTHC"))
+             add_val(entry["cbd"], row.get("TotalCBD"))
+             
+             # OCPDB Terpene Columns based on header
+             terp_cols = [
+                 "α-Pinene", "Camphene", "Myrcene", "β-Pinene", "3-Carene", "α-Terpinene", 
+                 "D-Limonene", "p-Cymene", "Ocimene", "Eucalyptol", "γ-Terpinene", "Terpinolene", 
+                 "Linalool", "Isopulegol", "Geraniol", "β-Caryophyllene", "α-Humelene", 
+                 "Nerolidol-1", "Nerolidol-2", "Guaiol", "CaryophylleneOxide", "α-Bisabolol"
+             ]
+             for col in terp_cols:
+                 try:
+                     val = row.get(col)
+                     if pd.notna(val) and float(val) > 0:
+                         # Normalize name (remove greek letters for searchability?)
+                         # Or keep scientific name. Let's keep name as is but strip potential junk.
+                         t_name = col.replace('α-', 'Alpha-').replace('β-', 'Beta-').replace('γ-', 'Gamma-')
+                         entry["terpenes"].add(t_name)
+                 except: pass
+
+        elif file_type == "results":
+             add_val(entry["thc"], row.get("delta-9 THC"))
+             try:
+                 if "Total THC" in row: add_val(entry["thc"], row.get("Total THC"))
+             except: pass
+             add_val(entry["cbd"], row.get("CBD"))
+             
+             # Results CSV Terpenes
+             res_terps = [
+                 "cis-Nerolidol", "trans-Nerolidol", "trans-Ocimene", "3-Carene", "Camphene", 
+                 "Caryophyllene Oxide", "Eucalyptol", "Geraniol", "Guaiol", "Isopulegol", 
+                 "Linalool", "Ocimene", "Terpinolene", "alpha-Bisabolol", "alpha-Humulene", 
+                 "alpha-Pinene", "alpha-Terpinene", "beta-Caryophyllene", "beta-Myrcene", 
+                 "beta-Ocimene", "beta-Pinene", "delta-Limonene", "gamma-Terpinene", "p-Cymene"
+             ]
+             for col in res_terps:
+                 try:
+                     val = row.get(col)
+                     if pd.notna(val) and float(val) > 0:
+                         entry["terpenes"].add(col)
+                 except: pass
+
+        elif file_type == "kushy":
+             add_val(entry["thc"], row.get("thc"))
+             add_val(entry["cbd"], row.get("cbd"))
+             if pd.notna(row.get("terpenes")): entry["terpenes"].add(row.get("terpenes"))
+
+    # --- HTML Parsing & Lineage Resolution ---
+
+    def parse_lineage_tree_static(self, html: str, root_name: str) -> Dict[str, Any]:
+        """
+        Parses HTML lineage tree.
+        Returns: (relations_dict, all_found_strains_set)
+        relations_dict: {parent_name: [child_1, child_2]} (Wait, direction?)
+        Actually we want: {child: [parents]} or {parent: [children]}?
+        
+        Let's stick to: { "Strain A": ["Parent B", "Parent C"] }
+        """
+        tree_relations = {}
+        all_strains = set()
+        
+        soup = BeautifulSoup(html, "html.parser")
+        root_li = soup.find('li')
+        
+        def parse_node(li_element, current_strain_name):
+            if not li_element: return
+            
+            # Normalize current
+            current_norm = normalize_name(current_strain_name)
+            if not current_norm: return
+            all_strains.add(current_norm)
+            
+            ul = li_element.find('ul')
+            if ul:
+                # This node has parents (children in the HTML tree structure, but biologically parents)
+                parents = []
+                for child_li in ul.find_all('li', recursive=False):
+                    # FULL TEXT extraction for Name (The Fix for 'x' nodes)
+                    # We want the text of the LI excluding its nested UL
+                    # Clone to safely remove ul
+                    li_clone = child_li.__copy__()
+                    if li_clone.find('ul'):
+                        li_clone.find('ul').decompose()
+                    
+                    raw_text = li_clone.get_text(" ", strip=True)
+                    # Filter out "»»»" symbols common in Seedfinder
+                    raw_text = raw_text.replace('»', '').strip()
+                    
+                    parent_name = raw_text
+                    parent_norm = normalize_name(parent_name)
+                    
+                    if parent_norm:
+                        parents.append(parent_norm)
+                        # Recurse
+                        parse_node(child_li, parent_name)
+                
+                if parents:
+                    tree_relations[current_norm] = parents
+        
+        if root_li:
+            parse_node(root_li, root_name)
+            
+        return tree_relations
+
+    def _resolve_lineage(self):
+        """
+        Iterates all strains. If they have HTML tree, parses it.
+        1. Updates entry['lineage'] with immediate parents.
+        2. Creates 'Ghost Nodes' for ancestors found in tree but missing in DB.
+        """
+        logger.info("Resolving Lineage...")
+        
+        # Snapshot of keys to avoid runtime change error during iteration
+        current_keys = list(self.strains.keys())
+        
+        for name in tqdm(current_keys, desc="Parsing Trees"):
+            entry = self.strains[name]
+            html = entry.get("html_tree")
+            
+            if html:
+                rels = self.parse_lineage_tree_static(html, entry['name'])
+                
+                # rels contains the whole tree flattened: {child: [parents]}
+                # We need to integrate this into the main graph.
+                
+                for child_norm, parents_norm in rels.items():
+                    # Ensure child exists (it might be an intermediate node discovered)
+                    if child_norm not in self.strains:
+                        self.strains[child_norm] = self._init_strain_entry(child_norm.title(), child_norm, "inferred")
+                        self.stats["new_from_secondary"] += 1 # Count as inferred
+                    
+                    # Ensure parents exist
+                    resolved_parents = []
+                    for p_norm in parents_norm:
+                         if p_norm not in self.strains:
+                             self.strains[p_norm] = self._init_strain_entry(p_norm.title(), p_norm, "inferred")
+                             self.stats["new_from_secondary"] += 1
+                         
+                         p_entry = self.strains[p_norm]
+                         resolved_parents.append({
+                             "name": p_entry["name"],
+                             "id": p_entry["uuid"]
+                         })
+                    
+                    # Update Child's resolved parents logic
+                    # We store them in a way Qdrant payload expects: "resolved_parents" list
+                    self.strains[child_norm]["resolved_parents"] = resolved_parents
+
+    # --- Upload ---
+    def _upload_batches(self):
+        BATCH_SIZE = 100
+        batch_points = []
+        
+        logger.info(f"Starting Upload... Total: {len(self.strains)}")
+        
+        # Prepare Queue
+        items = list(self.strains.values())
+        
+        for i, entry in enumerate(tqdm(items, desc="Uploading")):
+            # Vectorize
+            # Use Name + Description for rich semantic search
+            text = f"{entry['name']}"
+            if entry['description']:
+                text += f": {entry['description'][:500]}"
+            
+            vector = self.model.encode(text).tolist()
+            
+            # Prepare Payload
+            # Convert sets to lists
+            payload = {
+                "uuid": entry["uuid"],
+                "name": entry["name"],
+                "normalized_name": entry["normalized_name"],
+                "description": entry["description"],
+                "type": entry["type"],
+                "breeders": list(entry["breeders"]),
+                "thc": entry["thc"], # Keep as list of measurements? Or Avg?
+                # User asked to "append info". Storing all vals is safer for stats.
+                "cbd": entry["cbd"],
+                "terpenes": list(entry["terpenes"]),
+                "effects": list(entry["effects"]),
+                "flavors": list(entry["flavors"]),
+                "html_tree": entry["html_tree"],
+                "resolved_parents": entry.get("resolved_parents", []),
+                "source_files": list(entry["sources"])
+            }
+            
+            point = models.PointStruct(
+                id=entry["uuid"],
+                vector=vector,
+                payload=payload
+            )
+            batch_points.append(point)
+            
+            if len(batch_points) >= BATCH_SIZE:
+                self._upsert_batch(batch_points)
+                batch_points = []
+        
+        if batch_points:
+            self._upsert_batch(batch_points)
+
+    def _upsert_batch(self, points):
+        try:
+            self.qdrant.upsert(
+                collection_name=COLLECTION_NAME,
+                points=points,
+                wait=False
+            )
+        except Exception as e:
+            logger.error(f"Batch upsert failed: {e}")
 
     def ingest(self):
-        self.ensure_collection()
-        logger.info(f"Encoding and upserting {len(self.strains)} strains...")
+        # 1. Primary
+        self.process_primary_source("scrape_data/scrape/scrape.csv")
         
-        strain_list = list(self.strains.values())
-        batch_size = 100 # Qdrant batch size
+        # 2. Secondary
+        sources = [
+            ("scrape_data/scrape/cannabis-strains-final.csv", "cannabis-strains-final"),
+            ("scrape_data/scrape/cannabis.csv", "cannabis"),
+            ("scrape_data/scrape/cepas.csv", "cepas"),
+            ("scrape_data/scrape/leafly_strain_data.csv", "leafly"),
+            ("scrape_data/scrape/OCPDB.csv", "ocpdb"),
+            ("scrape_data/scrape/results.csv", "results"),
+            ("scrape_data/scrape/strainmaster.csv", "strainmaster"),
+            ("scrape_data/scrape/strains-kushy_api.2017-11-14.csv", "kushy")
+        ]
         
-        # Parallel Encoding option? SentenceTransformer is CPU/GPU intensive.
-        # But usually batched encoding is faster on one process unless we have multiple GPUs.
-        # So we keep this part simple but use larger batches if needed.
-        
-        for i in tqdm(range(0, len(strain_list), batch_size)):
-            batch = strain_list[i : i + batch_size]
-            texts = [s['name'] for s in batch]
-            vectors = self.encoder.encode(texts)
-            points = []
-            for idx, item in enumerate(batch):
-                payload = item.copy()
-                if isinstance(payload.get('breeders'), set):
-                    payload['breeders'] = list(payload['breeders'])
-                points.append(models.PointStruct(
-                    id=item['uuid'],
-                    vector=vectors[idx].tolist(),
-                    payload=payload
-                ))
-            self.client.upsert(
-                collection_name=COLLECTION_NAME,
-                points=points
-            )
+        for fp, ft in sources:
+            self.process_secondary_source(fp, ft)
 
-def main():
-    ingester = StrainIngester()
-    ingester.load_data()
-    ingester.resolve_references()
-    ingester.ingest()
-    logger.info("Ingestion complete.")
+        logger.info(f"Final Stats: {self.stats}")
+        logger.info(f"Total Strains to Upsert: {len(self.strains)}")
+
+        # 3. Resolve Parents & Lineage
+        self._resolve_lineage()
+        
+        # 4. Upsert
+        # Re-create Collection first to ensure clean state
+        try:
+             self.qdrant.recreate_collection(
+                collection_name=COLLECTION_NAME,
+                vectors_config=models.VectorParams(size=384, distance=models.Distance.COSINE)
+             )
+        except Exception as e:
+             logger.warning(f"Collection recreate skipped/failed: {e}")
+
+        self._upload_batches()
 
 if __name__ == "__main__":
-    main()
+    ingester = StrainIngester()
+    ingester.ingest()
