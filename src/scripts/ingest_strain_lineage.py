@@ -116,14 +116,20 @@ def parse_lineage_tree_static(parent_html: str, root_name: str) -> Tuple[Dict, S
                             found_strains.update(p_list)
                     
                     if li.find('ul'):
-                        child_name = None
+                        # Iterate children to build FULL name (e.g. "Gelato x Orange")
+                        # Stop at the nested 'ul'
+                        name_parts = []
                         for sub in li.children:
                             if sub.name == 'ul': break
                             if sub.name == 'a':
-                                child_name = sub.get_text(strip=True)
-                                break
-                            if isinstance(sub, str) and sub.strip():
-                                if not child_name: child_name = sub.strip()
+                                name_parts.append(sub.get_text(strip=True))
+                            elif isinstance(sub, str) and sub.strip():
+                                name_parts.append(sub.strip())
+                            # Handle spans or other tags if any (rare in seedfinder simple lists)
+                            elif sub.name and sub.name != 'ul':
+                                name_parts.append(sub.get_text(strip=True))
+                        
+                        child_name = " ".join(name_parts).strip()
 
                         if child_name and child_name != current_name:
                             child_name_norm = normalize_name(child_name)

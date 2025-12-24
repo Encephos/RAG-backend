@@ -103,4 +103,40 @@ def test_parse_lineage_tree_formula(ingester):
     assert "current strain" in relations
     parents = relations["current strain"]
     assert "parent one" in parents
+    assert "parent one" in parents
     assert "parent two" in parents
+
+def test_parse_intermediate_nodes(ingester):
+    # Test case: "Link A x Link B" should be a single intermediate node
+    html = """
+    <li>Root
+        <ul>
+            <li>
+                <a href="a">Starkiller</a> x <a href="b">Hash Plant</a>
+                <ul>
+                    <li><a href="c">Starkiller</a></li>
+                    <li><a href="d">Hash Plant</a></li>
+                </ul>
+            </li>
+        </ul>
+    </li>
+    """
+    try:
+        import bs4
+    except ImportError:
+        pytest.skip("bs4 not installed")
+
+    relations, found = ingester.parse_lineage_tree(html, "root")
+    
+    # 1. Root should have 1 parent: "starkiller x hash plant"
+    assert "root" in relations
+    root_parents = relations["root"]
+    assert len(root_parents) == 1
+    intermediate = "starkiller x hash plant"
+    assert intermediate in root_parents
+    
+    # 2. Intermediate should exist and have parents
+    assert intermediate in relations
+    inter_parents = relations[intermediate]
+    assert "starkiller" in inter_parents
+    assert "hash plant" in inter_parents
