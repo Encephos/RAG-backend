@@ -37,6 +37,12 @@ def normalize_name(name: Any) -> Optional[str]:
     n = n.replace('(ibl)', '').replace(' ibl', '') 
     # Cleanup spaces
     n = re.sub(r'\s+', ' ', n).strip()
+    
+    # Remove surrounding parentheses if present (common in intermediate nodes)
+    # e.g. "(Grape Ape x Grapefruit)" -> "Grape Ape x Grapefruit"
+    if n.startswith('(') and n.endswith(')'):
+        n = n[1:-1].strip()
+        
     return n if n else None
 
 def generate_uuid(name: str) -> str:
@@ -255,60 +261,134 @@ class StrainIngester:
 
     # --- HTML Parsing & Lineage Resolution ---
 
-    def parse_lineage_tree_static(self, html: str, root_name: str) -> Dict[str, Any]:
+    def parse_lineage_tree_static(self, parent_html: str, root_name: str) -> tuple[dict, set]:
         """
-        Parses HTML lineage tree.
-        Returns: (relations_dict, all_found_strains_set)
-        relations_dict: {parent_name: [child_1, child_2]} (Wait, direction?)
-        Actually we want: {child: [parents]} or {parent: [children]}?
-        
-        Let's stick to: { "Strain A": ["Parent B", "Parent C"] }
+        Parses the nested HTML structure from seedfinder parent_tree column.
+        (Ported from src/scripts/ingest_scraped.py as per user request)
+        Returns (relations_dict, all_found_strains_set)
         """
-        tree_relations = {}
-        all_strains = set()
-        
-        soup = BeautifulSoup(html, "html.parser")
+        if not parent_html:
+             return {}, set()
+
+        # Ensure we have a root LI.
+        if not parent_html.strip().lower().startswith("<li"):
+             parent_html = f"<li>{parent_html}</li>"
+
+        try:
+            from bs4 import BeautifulSoup, Tag
+        except ImportError:
+            logger.error("BeautifulSoup not found.")
+            return {}, set()
+
+        soup = BeautifulSoup(parent_html, "html.parser")
         root_li = soup.find('li')
         
-        def parse_node(li_element, current_strain_name):
-            if not li_element: return
-            
-            # Normalize current
-            current_norm = normalize_name(current_strain_name)
-            if not current_norm: return
-            all_strains.add(current_norm)
-            
-            ul = li_element.find('ul')
-            if ul:
-                # This node has parents (children in the HTML tree structure, but biologically parents)
-                parents = []
-                for child_li in ul.find_all('li', recursive=False):
-                    # FULL TEXT extraction for Name (The Fix for 'x' nodes)
-                    # We want the text of the LI excluding its nested UL
-                    # Clone to safely remove ul
-                    li_clone = child_li.__copy__()
-                    if li_clone.find('ul'):
-                        li_clone.find('ul').decompose()
-                    
-                    raw_text = li_clone.get_text(" ", strip=True)
-                    # Filter out "»»»" symbols common in Seedfinder
-                    raw_text = raw_text.replace('»', '').strip()
-                    
-                    parent_name = raw_text
-                    parent_norm = normalize_name(parent_name)
-                    
-                    if parent_norm:
-                        parents.append(parent_norm)
-                        # Recurse
-                        parse_node(child_li, parent_name)
-                
-                if parents:
-                    tree_relations[current_norm] = parents
+        tree_relations = {}
+        found_strains = {normalize_name(root_name)} if root_name else set()
         
+        def parse_node(element: Tag, current_name_raw: str):
+             current_name = normalize_name(current_name_raw)
+             if not current_name: return
+             found_strains.add(current_name)
+             
+             # Find the UL containing children/lineage info
+             ul = element.find('ul', recursive=False)
+             if not ul: return 
+             
+             for child in ul.children:
+                 if child.name == 'ul':
+                      # Potential Formula Wrapper (Seedfinder specific)
+                      for inner_li in child.find_all('li'):
+                          if "»»»" in inner_li.get_text():
+                               links = inner_li.find_all('a')
+                               p_list = []
+                               for link in links:
+                                   p_name = normalize_name(link.get_text(strip=True))
+                                   if p_name and "unknown" not in p_name:
+                                        p_list.append(p_name)
+                               
+                                   if p_list:
+                                       existing = tree_relations.get(current_name, [])
+                                       # Direction: Current -> [Parents]
+                                       tree_relations[current_name] = list(set(existing + p_list))
+                                       found_strains.update(p_list)
+                                   # We don't recurse into formula nodes usually as they are leaves
+                                   break 
+                 
+                 elif child.name == 'li':
+                     li = child
+                     text = li.get_text()
+                     
+                     # Check for Direct Formula in LI
+                     if "»»»" in text and not li.find('ul'):
+                          links = li.find_all('a')
+                          p_list = []
+                          for link in links:
+                              p_name = normalize_name(link.get_text(strip=True))
+                              if p_name and "unknown" not in p_name:
+                                   p_list.append(p_name)
+                          
+                          if p_list:
+                               existing = tree_relations.get(current_name, [])
+                               tree_relations[current_name] = list(set(existing + p_list))
+                               found_strains.update(p_list)
+                     
+                     # Definition Node (Standard Ancestors)
+                     if li.find('ul'):
+                         child_name = None
+                         # Helper to find direct name of this node (The Intermediate "A x B")
+                         for sub in li.children:
+                             if sub.name == 'ul': break
+                             if sub.name == 'a':
+                                 child_name = sub.get_text(strip=True)
+                                 break
+                             if isinstance(sub, str) and sub.strip():
+                                 if not child_name: child_name = sub.strip()
+
+                         # If text node contains "x" and looks like a cross name, use it
+                         # Logic from previous fix: Capture full text including links!
+                         # Re-applying the "Full Text" fix within this structure:
+                         full_text = ""
+                         li_clone = li.__copy__()
+                         if li_clone.find('ul'): li_clone.find('ul').decompose()
+                         full_text = li_clone.get_text(" ", strip=True).replace('»', '').strip()
+                         
+                         if full_text and len(full_text) > 2:
+                             child_name = full_text
+
+                         child_norm = normalize_name(child_name)
+
+                         if child_norm and child_norm != current_name:
+                             # Add to relations
+                             existing = tree_relations.get(current_name, [])
+                             if child_norm not in existing:
+                                  existing.append(child_norm)
+                                  tree_relations[current_name] = existing
+                             
+                             # Recurse
+                             parse_node(li, child_name)
+                     
+                     else:
+                         # Simple Leaf Node (e.g. <li><a href>Strain A</a></li>)
+                         p_name = None
+                         link = li.find('a')
+                         if link:
+                             p_name = link.get_text(strip=True)
+                         else:
+                             p_name = li.get_text(strip=True)
+                         
+                         p_norm = normalize_name(p_name)
+                         if p_norm and p_norm != current_name:
+                             existing = tree_relations.get(current_name, [])
+                             if p_norm not in existing:
+                                  existing.append(p_norm)
+                                  tree_relations[current_name] = existing
+                                  found_strains.add(p_norm)
+                             
         if root_li:
-            parse_node(root_li, root_name)
-            
-        return tree_relations
+             parse_node(root_li, root_name)
+             
+        return tree_relations, found_strains
 
     def _resolve_lineage(self):
         """
@@ -326,11 +406,18 @@ class StrainIngester:
             html = entry.get("html_tree")
             
             if html:
-                rels = self.parse_lineage_tree_static(html, entry['name'])
+                rels, found_strains = self.parse_lineage_tree_static(html, entry['name'])
                 
-                # rels contains the whole tree flattened: {child: [parents]}
-                # We need to integrate this into the main graph.
+                # rels contains: {MainStrain: [ParentA, ParentB], ParentA: [GrandParentC]}
                 
+                # 1. Register inferred strains first
+                for s_norm in found_strains:
+                    if s_norm not in self.strains:
+                         # Infer name casing from norm (not ideal, but better than nothing)
+                         self.strains[s_norm] = self._init_strain_entry(s_norm.title(), s_norm, "inferred")
+                         self.stats["new_from_secondary"] += 1
+
+                # 2. Link Resolved Parents
                 for child_norm, parents_norm in rels.items():
                     # Ensure child exists (it might be an intermediate node discovered)
                     if child_norm not in self.strains:
