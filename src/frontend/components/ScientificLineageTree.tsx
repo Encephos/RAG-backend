@@ -66,33 +66,67 @@ export default function ScientificLineageTree({ data, onNodeClick, selectedNodeI
         });
 
         // Recursive Build
-        // Limit depth to avoid massive trees if logic fails
-        const MAX_DEPTH = 20;
+        // Limit depth drastically to prevent exponential explosion
+        const MAX_DEPTH = 12; // 12 is enough for display, deeper is unreadable
+        const globalVisited = new Set<string>();
 
         const build = (currentId: string, depth: number, path: Set<string>): any => {
             const nodeData = nodes.find(n => n.id === currentId);
             if (!nodeData) return null; // Should not happen
 
-            // Cycle Check
+            // 1. Cycle Check (Path)
             if (path.has(currentId)) {
                 return {
                     ...nodeData,
-                    id: `${currentId}-cycle-${Math.random()}`, // Unique ID for d3 to treat as separate leaf
-                    label: `${nodeData.label} (Cycle)`,
+                    id: `${currentId}-cycle-${Math.random()}`,
+                    label: `${nodeData.label}`,
+                    description: "Cycle detected - ancestor is also descendant",
                     children: []
                 };
             }
 
+            // 2. Max Depth Check
             if (depth > MAX_DEPTH) {
                 return {
                     ...nodeData,
-                    id: `${currentId}-maxdepth-${Math.random()}`,
-                    label: `${nodeData.label} (...)`,
+                    id: `${currentId}-max-${Math.random()}`,
+                    label: `...`,
                     children: []
                 };
             }
 
+            // 3. Duplicate Check (Global) - The Critical Fix for Freeze
+            // If we have already fully expanded this node elsewhere in the tree, 
+            // we should not expand it again fully to avoid exponential growth (pedigree collapse).
+            // However, simply stopping might hide info.
+            // Strategy: Allow expansion if depth is shallow (< 3), otherwise simplify.
+            // Or: Just add it as a leaf if visited.
+
+            // Let's use a "soft" visited check. If visited, we stop.
+            // But this means the tree order matters (DFS).
+            // D3 tree is DFS.
+
+            const isDuplicate = globalVisited.has(currentId);
+            globalVisited.add(currentId);
+
             const childrenIds = adj.get(currentId) || [];
+
+            if (isDuplicate && childrenIds.length > 0) {
+                // It's a duplicate branch.
+                // Rendering it completely creates massive LAG.
+                // We render it as a leaf node with a visual marker.
+                return {
+                    ...nodeData,
+                    id: `${currentId}-dup-${Math.random()}`,
+                    label: `${nodeData.label}`,
+                    // Add a visual hint? 
+                    // We can use a special 'group' or logic in rendering
+                    group: typeof nodeData.group === 'string' ? nodeData.group : 'Ancestor',
+                    // We handle styling in render based on duplicate status if we wanted, 
+                    // but stopping recursion is the key.
+                    children: [] // STOP RECURSION
+                };
+            }
 
             // Recurse
             const newPath = new Set(path);
@@ -104,12 +138,8 @@ export default function ScientificLineageTree({ data, onNodeClick, selectedNodeI
 
             return {
                 ...nodeData,
-                // Important: Clone ID if it appears multiple times in tree? 
-                // d3.hierarchy requires unique IDs if using id accessor? 
-                // Actually d3.hierarchy doesn't strictly require unique IDs, but d3.tree might behave better.
-                // But for React keys in rendering, we assume d3 layout.
-                // Let's keep original ID but if it appears twice, our React key logic needs to use hierarchy-generated ids (like d3 logic does).
-                // However, let's keep it simple.
+                // Ensure unique ID for D3 layout distinctness
+                id: depth === 0 ? currentId : `${currentId}-node-${Math.random()}`,
                 children: children
             };
         };
