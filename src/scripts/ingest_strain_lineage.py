@@ -12,6 +12,11 @@ from bs4 import BeautifulSoup
 import re
 from tqdm import tqdm
 from dotenv import load_dotenv
+import csv
+import sys
+
+# Increase CSV field limit for large HTML content
+csv.field_size_limit(sys.maxsize)
 
 # Setup Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
