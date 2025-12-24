@@ -243,8 +243,8 @@ class KnowledgeGraphService:
             if not current_layer_ids:
                 break
             
-            if len(nodes) > 500:
-                logger.warning(f"Lineage limit 500 reached.")
+            if len(nodes) > 200:
+                logger.warning(f"Lineage limit 200 reached. Stopping traversal.")
                 break
 
             # Need to fetch payloads for IDs that we only have stubs for
@@ -300,7 +300,6 @@ class KnowledgeGraphService:
                             "label": p_name,
                             "group": "Ancestor",
                             "val": 10,
-                            "breeder": "Unknown",
                             "type": "Strain",
                         }
                         
@@ -309,6 +308,9 @@ class KnowledgeGraphService:
                             "target": p_id,
                             "label": "bred_from"
                         })
+                        
+                        if len(nodes) > 200:
+                             break
                     elif p_id and p_id in nodes:
                          # Link to existing node
                          # Check dup link (inefficient linear check but graph is small)
