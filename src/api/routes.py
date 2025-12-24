@@ -460,8 +460,8 @@ async def get_lineage_graph(
     """
     try:
         # We can map direction to different logic if needed later
-        # User requested revert to 384-dim 'botanical_entities'
-        data = await kg_service.get_lineage(strain, depth=depth, collection_name="botanical_entities")
+        # Updated to use the new strain_lineage_data collection (default in service)
+        data = await kg_service.get_lineage(strain, depth=depth)
         return data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

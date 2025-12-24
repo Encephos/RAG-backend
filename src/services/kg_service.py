@@ -1,3 +1,4 @@
+
 from typing import List, Dict, Any, Optional
 import uuid
 from src.services.qdrant_service import QdrantService
@@ -133,13 +134,8 @@ class KnowledgeGraphService:
         # Embed query
         query_vector = await self.embedder.embed_query(query)
         
-        # Search for central nodes
-        # We assume 'entities' collection if not specified or derived from name
-        # If collection_name is passed (e.g. 'botanical_knowledge'), map it to entities
         target_collection = collection_name
         if not target_collection:
-             # Default to a generic search or all known entity collections?
-             # For now, let's assume we search in the default entity collection associated with settings
              from src.core.config import settings
              target_collection = settings.QDRANT_ENTITY_COLLECTION_NAME
         
@@ -171,36 +167,14 @@ class KnowledgeGraphService:
                     "target": target_id,
                     "label": rel.get("type", "related_to")
                 })
-                
-                # We might want to fetch the target node details if not already in nodes?
-                # For visualization to be complete, we need the target node label.
-                # But Qdrant 'get' is 1-by-1. For performance, we might just create a placeholder node
-                # if we don't have it, or rely on it being found in the search if relevant?
-                # Better: Add a "stub" node if missing, maybe the UI can fetch details or just show ID/Unknown.
-                # However, our relation storage usually stores just ID.
-                # Optimization: In `add_relation`, we could store target_name too. 
-                # Without target_name, the graph looks ugly (just IDs).
-                # Let's check `add_relation` logic... it stores target_id.
-                
-                # WORKAROUND: For now, if we don't have the target node in our search results,
-                # we just show the ID or skip it? 
-                # Ideally, we should do a batch fetch for missing IDs. Qdrant supports retrieve by list of IDs.
-                
+
         # Batch fetch missing nodes
         all_node_ids = set(nodes.keys())
         target_ids = {l["target"] for l in links}
         missing_ids = list(target_ids - all_node_ids)
         
         if missing_ids:
-            # Batch retrieve
-             # Note: QdrantService might need a batch get method. 
-             # Let's try to access Qdrant client directly or add a method.
-             # Checking QdrantService... it has `get_entity`.
-             # We can do parallel gets or add a batch get.
-             # Implementation choice: Add `get_entities(ids)` to QdrantService in next step if needed,
-             # OR just loop `get_entity` here (slower but safer for now).
-            pass
-            # For this iteration, let's just loop (limit is small, 15 nodes * avg 2 relations = 30 max)
+             # Just loop for now
             for m_id in missing_ids:
                  entity = self.qdrant.get_entity(m_id, collection_name=target_collection)
                  if entity:
@@ -216,10 +190,10 @@ class KnowledgeGraphService:
             "links": links
         }
 
-    async def get_lineage(self, strain_name: str, depth: int = 10, collection_name: str = None) -> Dict[str, Any]:
+    async def get_lineage(self, strain_name: str, depth: int = 10, collection_name: str = "strain_lineage_data") -> Dict[str, Any]:
         """
-        Retrieves the genealogy/lineage of a strain using Batched BFS for performance.
-        Builds a strict spanning tree to prevent cycles.
+        Retrieves the genealogy/lineage of a strain using Batched BFS on `strain_lineage_data`.
+        Supports complex nested trees via `resolved_parents` and `html_tree` data.
         """
         import time
         cache_key = (strain_name, depth, collection_name)
@@ -230,51 +204,27 @@ class KnowledgeGraphService:
             else:
                 del self._lineage_cache[cache_key]
 
-        target_collection = collection_name or "botanical_entities"
+        target_collection = "strain_lineage_data"
         
-        # 1. Resolve Start Node
-        # Try finding by exact name first (Fastest/Safest for known entities)
-        start_node_id = None
-        start_payload = None
+        # 1. Resolve Start Node by Name (Exact Match via QdrantService which normalizes)
+        start_payload = self.qdrant.get_strain_lineage(strain_name)
         
-        try:
-             # Smart Exact Match (Handle "Auto" suffix automatically)
-             name_variants = [strain_name]
-             suffixes = [" Auto", " Automatic", " Feminized", " Fem"]
-             for s in suffixes:
-                 if strain_name.lower().endswith(s.lower()):
-                     name_variants.append(strain_name[0:-len(s)].strip())
-             
-             for name in name_variants:
-                 scroll_res = self.qdrant.client.scroll(
-                     collection_name=target_collection,
-                     scroll_filter=models.Filter(must=[models.FieldCondition(key="name", match=models.MatchValue(value=name))]),
-                     limit=1,
-                     with_payload=True
-                 )
-                 if scroll_res[0]:
-                     start_node_id = scroll_res[0][0].id
-                     start_payload = scroll_res[0][0].payload
-                     logger.info(f"Lineage: Resolved '{strain_name}' to '{name}' ({start_node_id})")
-                     break
-        except Exception as e:
-            logger.warning(f"Lineage lookup failed: {e}")
-
-        # Fallback to Vector Search if exact match failed
-        if not start_node_id:
-             if target_collection == "botanical_entities":
-                 vec = await self.embedder.embed_query_384(strain_name)
-             else:
-                 vec = await self.embedder.embed_query(strain_name)
-             
-             search_res = self.qdrant.search_entities(vec, limit=1, score_threshold=0.70, collection_name=target_collection)
-             if search_res:
-                 start_node_id = search_res[0].id
-                 start_payload = search_res[0].payload
-
-        if not start_node_id:
-            logger.warning(f"Lineage: Strain '{strain_name}' not found.")
+        if not start_payload:
+            # Fallback: Try "Auto" suffix variants purely on name logic if user typed loosely
+            suffixes = [" Auto", " Automatic", " Feminized", " Fem"]
+            for s in suffixes:
+                if strain_name.lower().endswith(s.lower()):
+                    variant = strain_name[0:-len(s)].strip()
+                    start_payload = self.qdrant.get_strain_lineage(variant)
+                    if start_payload: 
+                        logger.info(f"Resolved '{strain_name}' to variant '{variant}'")
+                        break
+        
+        if not start_payload:
+            logger.warning(f"Lineage: Strain '{strain_name}' not found in {target_collection}.")
             return {"nodes": [], "links": []}
+
+        start_node_id = start_payload.get("uuid")
 
         # 2. Batched BFS Traversal
         nodes = {}
@@ -286,112 +236,96 @@ class KnowledgeGraphService:
         
         current_layer_ids = [start_node_id]
         
+        # Pre-load start payload
+        layer_payloads = {start_node_id: start_payload}
+
         for d in range(depth):
             if not current_layer_ids:
                 break
             
-            # Stop expansion if too large
-            if len(nodes) > 200:
-                logger.warning(f"Lineage limit 200 reached.")
+            if len(nodes) > 500:
+                logger.warning(f"Lineage limit 500 reached.")
                 break
 
-            # A. Fetch all entities in current layer to get their relations
-            # (We already have payload for start node, but for subsequent layers we need to fetch)
-            # Optimization: We already have payloads from the *previous* batch fetch? 
-            # No, in previous step we found IDs. Now we need their payloads to find *their* parents.
+            # Need to fetch payloads for IDs that we only have stubs for
+            ids_to_fetch = [nid for nid in current_layer_ids if nid not in layer_payloads]
             
-            # Filter IDs that we don't have payloads for yet (should be all except start on first run)
-            ids_to_fetch = [nid for nid in current_layer_ids if "relations" not in nodes[nid].get("payload_stub", {})]
-            
-            # If start node, we might already have payload, but let's ensure we parse relations
-            # Actually, let's just use the `nodes` dict to store payload for processing?
-            # We stored formatted node. Let's fetch payloads for the layer's IDs.
-            
-            layer_payloads = {}
-            if current_layer_ids:
-                # Batch Retrieve
+            if ids_to_fetch:
                 try:
-                    # Qdrant retrieve takes list of IDs
                     results = self.qdrant.client.retrieve(
                         collection_name=target_collection,
-                        ids=current_layer_ids,
+                        ids=ids_to_fetch,
                         with_payload=True
                     )
                     for point in results:
                         layer_payloads[point.id] = point.payload
                 except Exception as e:
                     logger.error(f"Batch retrieve failed: {e}")
-            
+
             next_layer_ids = []
             
-            # Process this layer
             for pid in current_layer_ids:
-                payload = layer_payloads.get(pid, {})
-                relations = payload.get("relations", [])
-                
-                # UPDATE LABEL from actual payload (Fixes "Unknown")
-                if payload.get("name"):
-                    nodes[pid]["label"] = payload.get("name")
-                    nodes[pid]["breeder"] = payload.get("breeder")
-                    nodes[pid]["image"] = payload.get("image")
-                    nodes[pid]["type"] = payload.get("type")
+                payload = layer_payloads.get(pid)
+                if not payload: continue
 
-                # Check parents (upstream)
-                for r in relations:
-                    rtype = r.get("type", "").lower()
-                    target_id = r.get("target_id")
+                # Update Node Details (Full Enrichment)
+                if pid in nodes:
+                    if not nodes[pid].get("breeder") and payload.get("breeders"):
+                         bs = payload.get("breeders")
+                         nodes[pid]["breeder"] = ", ".join(bs) if isinstance(bs, list) else str(bs)
+                    if not nodes[pid].get("description"):
+                         nodes[pid]["description"] = payload.get("description", "")
+                    if payload.get("html_tree"):
+                         nodes[pid]["html_tree"] = payload.get("html_tree")
                     
-                    if rtype in ["bred_from", "has_parent", "hybrid_of", "child_of", "cross_of"]:
-                         if target_id and target_id not in visited:
-                             visited.add(target_id)
-                             next_layer_ids.append(target_id)
-                             
-                             # Create Node Placeholder (will be filled in next fetch, or now?)
-                             # We need to add to `nodes` so we can link to it.
-                             # We don't have its payload yet, but we have label from relation.
-                             nodes[target_id] = {
-                                 "id": target_id,
-                                 "label": r.get("target_label", "Unknown"),
-                                 "group": "Ancestor",
-                                 "val": 10,
-                                 "payload_stub": {} # Marker to fetch next
-                             }
-                             
-                             # Add Link (Strict Tree)
+                    # Store resolved parents for frontend inspection if needed
+                    # nodes[pid]["parents_data"] = payload.get("parents", [])
+
+                # Get Parents (Upstream)
+                parents = payload.get("resolved_parents", [])
+                
+                for p in parents:
+                    p_id = p.get("id")
+                    p_name = p.get("name")
+                    
+                    # Loop Check
+                    if p_id == pid: continue 
+
+                    if p_id and p_id not in visited:
+                        visited.add(p_id)
+                        next_layer_ids.append(p_id)
+                        
+                        nodes[p_id] = {
+                            "id": p_id,
+                            "label": p_name,
+                            "group": "Ancestor",
+                            "val": 10,
+                            "breeder": "Unknown",
+                            "type": "Strain",
+                        }
+                        
+                        links.append({
+                            "source": pid,
+                            "target": p_id,
+                            "label": "bred_from"
+                        })
+                    elif p_id and p_id in nodes:
+                         # Link to existing node
+                         # Check dup link (inefficient linear check but graph is small)
+                         exists = any(l for l in links if l["source"] == pid and l["target"] == p_id)
+                         if not exists:
                              links.append({
-                                 "source": pid,
-                                 "target": target_id,
-                                 "label": rtype
-                             })
+                                "source": pid,
+                                "target": p_id,
+                                "label": "bred_from"
+                            })
 
             current_layer_ids = next_layer_ids
-
-        # 3. Add 1st Level Descendants (Children)
-        # Separate fetch
-        try:
-             children_res = self.qdrant.client.scroll(
-                 collection_name=target_collection,
-                 scroll_filter=models.Filter(
-                     must=[models.FieldCondition(key="relations.target_id", match=models.MatchValue(value=start_node_id))]
-                 ),
-                 limit=20,
-                 with_payload=True
-             )[0]
-             
-             for child in children_res:
-                 if child.id not in nodes:
-                     nodes[child.id] = self._format_node(child.id, child.payload, "Descendant", 10)
-                     
-                     # Add Link
-                     links.append({
-                         "source": child.id,
-                         "target": start_node_id,
-                         "label": "descendant"
-                     })
-        except Exception as e:
-            logger.warning(f"Error fetching descendants: {e}")
-
-        return {"nodes": list(nodes.values()), "links": links}
+            layer_payloads = {} # Clear for next iter
+        
+        result = {"nodes": list(nodes.values()), "links": links}
+        self._lineage_cache[cache_key] = (time.time(), result)
+        return result
 
     def _format_node(self, nid, payload, group, val):
         return {
@@ -399,17 +333,11 @@ class KnowledgeGraphService:
             "label": payload.get("name", "Unknown"),
             "group": group,
             "val": val,
-            "breeder": payload.get("breeder"),
+            "breeder": ", ".join(payload.get("breeders", [])) if isinstance(payload.get("breeders"), list) else payload.get("breeder"),
             "type": payload.get("type"),
             "image": payload.get("image"),
-            # internal marker
             "payload_stub": payload 
         }
-        
-        # Cache Result
-        self._lineage_cache[cache_key] = (time.time(), result)
-        
-        return result
 
     def clear(self) -> None:
         """Clear is not easily supported in persistent vector store without dropping collection."""
