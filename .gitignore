@@ -208,6 +208,7 @@ __marimo__/
 
 # Local Data
 data/sources/
+old_files/
 
 # Scraped Data
 scrape_data/scrape/*.csv
