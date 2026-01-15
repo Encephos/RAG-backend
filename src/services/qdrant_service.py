@@ -65,16 +65,19 @@ class QdrantService:
                 else:
                     logger.info(f"Vector Collection {col_name} already exists.")
             
+                
             # Ensure Strain Collection (384 dim)
-            if "strain_lineage_data" not in existing_names:
-                logger.info("Creating strain lineage collection (384 dim)")
-                self.client.create_collection(
-                    collection_name="strain_lineage_data",
-                    vectors_config=models.VectorParams(
-                        size=384,
-                        distance=models.Distance.COSINE
+            # Legacy "strain_lineage_data" and new "strain_genetics"
+            for col in ["strain_lineage_data", "strain_genetics"]:
+                if col not in existing_names:
+                    logger.info(f"Creating strain lineage collection (384 dim): {col}")
+                    self.client.create_collection(
+                        collection_name=col,
+                        vectors_config=models.VectorParams(
+                            size=384,
+                            distance=models.Distance.COSINE
+                        )
                     )
-                )
                 
             # Ensure all entity collections exist (Graphs)
             for key, col_name in self.entity_collections.items():
@@ -321,7 +324,7 @@ class QdrantService:
             doc_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, name_normalized))
             
             points = self.client.retrieve(
-                collection_name="strain_lineage_data",
+                collection_name="strain_genetics",
                 ids=[doc_id]
             )
             

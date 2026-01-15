@@ -190,9 +190,9 @@ class KnowledgeGraphService:
             "links": links
         }
 
-    async def get_lineage(self, strain_name: str, depth: int = 10, collection_name: str = "strain_lineage_data") -> Dict[str, Any]:
+    async def get_lineage(self, strain_name: str, depth: int = 10, collection_name: str = "strain_genetics") -> Dict[str, Any]:
         """
-        Retrieves the genealogy/lineage of a strain using Batched BFS on `strain_lineage_data`.
+        Retrieves the genealogy/lineage of a strain using Batched BFS on `strain_genetics`.
         Supports complex nested trees via `resolved_parents` and `html_tree` data.
         """
         import time
@@ -204,13 +204,13 @@ class KnowledgeGraphService:
             else:
                 del self._lineage_cache[cache_key]
 
-        target_collection = "strain_lineage_data"
+        target_collection = collection_name
         
         # 1. Resolve Start Node by Name (Exact Match via QdrantService which normalizes)
         start_payload = self.qdrant.get_strain_lineage(strain_name)
         
         if not start_payload:
-            # Fallback: Try "Auto" suffix variants purely on name logic if user typed loosely
+            # Fallback 1: Try "Auto" suffix variants purely on name logic
             suffixes = [" Auto", " Automatic", " Feminized", " Fem"]
             for s in suffixes:
                 if strain_name.lower().endswith(s.lower()):
@@ -220,6 +220,29 @@ class KnowledgeGraphService:
                         logger.info(f"Resolved '{strain_name}' to variant '{variant}'")
                         break
         
+        if not start_payload:
+            # Fallback 2: Vector Search (Fuzzy Match / Typo Tolerance)
+            # This handles "Zams Poison" -> "Zam's Poison"
+            logger.info(f"Direct match failed for '{strain_name}'. Attempting vector search in {target_collection}...")
+            try:
+                # Use the 384-dim embedder consistent with this collection
+                query_vector = await self.embedder.embed_query_384(strain_name)
+                
+                # Search specifically in the strain collection
+                results = self.qdrant.search_entities(
+                    query_vector, 
+                    limit=1, 
+                    score_threshold=0.85, 
+                    collection_name=target_collection
+                )
+                
+                if results:
+                    start_payload = results[0].payload
+                    resolved_name = start_payload.get("name")
+                    logger.info(f"Fuzzy match resolved: '{strain_name}' -> '{resolved_name}' (Score: {results[0].score:.4f})")
+            except Exception as e:
+                logger.error(f"Fuzzy search failed: {e}")
+
         if not start_payload:
             logger.warning(f"Lineage: Strain '{strain_name}' not found in {target_collection}.")
             return {"nodes": [], "links": []}
