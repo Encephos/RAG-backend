@@ -20,12 +20,12 @@ async def main():
     qdrant = kg.qdrant
     query_vector = await embedder.embed_query_384(strain_name)
     
-    hits = qdrant.client.search(
+    hits = qdrant.client.query_points(
         collection_name="strain_genetics",
-        query_vector=query_vector,
+        query=query_vector,
         limit=5,
         with_payload=True
-    )
+    ).points
     
     for hit in hits:
         logger.info(f"Candidate: {hit.payload.get('name')} | Score: {hit.score}")

@@ -221,25 +221,44 @@ class KnowledgeGraphService:
                         break
         
         if not start_payload:
-            # Fallback 2: Vector Search (Fuzzy Match / Typo Tolerance)
-            # This handles "Zams Poison" -> "Zam's Poison"
+            # Fallback 2: Vector Search + String Similarity Re-ranking
+            # "Zams Poison" -> Vector Score ~0.58 (vs "Quick Poison" ~0.53). Too close.
+            # We use vector search for recall, and string similarity (difflib) for precision.
             logger.info(f"Direct match failed for '{strain_name}'. Attempting vector search in {target_collection}...")
             try:
+                import difflib
+                
                 # Use the 384-dim embedder consistent with this collection
                 query_vector = await self.embedder.embed_query_384(strain_name)
                 
-                # Search specifically in the strain collection
+                # Search specifically in the strain collection with LOW threshold to get candidates
                 results = self.qdrant.search_entities(
                     query_vector, 
-                    limit=1, 
-                    score_threshold=0.85, 
+                    limit=10, 
+                    score_threshold=0.45, 
                     collection_name=target_collection
                 )
                 
-                if results:
-                    start_payload = results[0].payload
-                    resolved_name = start_payload.get("name")
-                    logger.info(f"Fuzzy match resolved: '{strain_name}' -> '{resolved_name}' (Score: {results[0].score:.4f})")
+                best_match = None
+                best_ratio = 0.0
+                
+                for res in results:
+                    candidate_name = res.payload.get("name")
+                    # Calculate string similarity ratio (Levenshtein-like)
+                    ratio = difflib.SequenceMatcher(None, strain_name.lower(), candidate_name.lower()).ratio()
+                    
+                    if ratio > best_ratio:
+                        best_ratio = ratio
+                        best_match = res.payload
+                
+                # Threshold for string match confirmation (0.8 is usually good for typos)
+                if best_match and best_ratio > 0.8:
+                    start_payload = best_match
+                    logger.info(f"Fuzzy match resolved: '{strain_name}' -> '{best_match.get('name')}' (String Ratio: {best_ratio:.2f})")
+                else:
+                    if results:
+                        logger.info(f"Fuzzy search found candidates but max ratio {best_ratio:.2f} < 0.8. Top candidate: {results[0].payload.get('name')}")
+
             except Exception as e:
                 logger.error(f"Fuzzy search failed: {e}")
 
