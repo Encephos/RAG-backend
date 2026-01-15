@@ -312,16 +312,26 @@ class KnowledgeGraphService:
 
                 # Update Node Details (Full Enrichment)
                 if pid in nodes:
-                    if not nodes[pid].get("breeder") and payload.get("breeders"):
+                    node = nodes[pid]
+                    # Update basic fields if missing
+                    if not node.get("breeder") and payload.get("breeders"):
                          bs = payload.get("breeders")
-                         nodes[pid]["breeder"] = ", ".join(bs) if isinstance(bs, list) else str(bs)
-                    if not nodes[pid].get("description"):
-                         nodes[pid]["description"] = payload.get("description", "")
-                    if payload.get("html_tree"):
-                         nodes[pid]["html_tree"] = payload.get("html_tree")
+                         node["breeder"] = ", ".join(bs) if isinstance(bs, list) else str(bs)
+                    if not node.get("description"):
+                         node["description"] = payload.get("description", "")
                     
-                    # Store resolved parents for frontend inspection if needed
-                    # nodes[pid]["parents_data"] = payload.get("parents", [])
+                    # Update enriched fields if present in payload
+                    for field in ["effects", "flavors", "terpenes", "medical", "cannabinoids", "aromas"]:
+                        if payload.get(field) and not node.get(field):
+                            node[field] = payload.get(field)
+                    
+                    if payload.get("thc_percent") and not node.get("thc"):
+                         node["thc"] = payload.get("thc_percent")
+                    if payload.get("cbd_percent") and not node.get("cbd"):
+                         node["cbd"] = payload.get("cbd_percent")
+
+                    if payload.get("html_tree"):
+                         node["html_tree"] = payload.get("html_tree")
 
                 # Get Parents (Upstream)
                 parents = payload.get("resolved_parents", [])
@@ -380,7 +390,16 @@ class KnowledgeGraphService:
             "breeder": ", ".join(payload.get("breeders", [])) if isinstance(payload.get("breeders"), list) else payload.get("breeder"),
             "type": payload.get("type"),
             "image": payload.get("image"),
-            "payload_stub": payload 
+            "description": payload.get("description"),
+            # Enriched Fields
+            "effects": payload.get("effects"),
+            "flavors": payload.get("flavors"),
+            "terpenes": payload.get("terpenes"),
+            "medical": payload.get("medical"),
+            "cannabinoids": payload.get("cannabinoids"),
+            "thc": payload.get("thc_percent"),
+            "cbd": payload.get("cbd_percent"),
+            "aromas": payload.get("aromas")
         }
 
     def clear(self) -> None:

@@ -138,7 +138,6 @@ export default function GenealogyExplorer() {
                         </div>
                     )}
                 </div>
-
                 {/* Details Content */}
                 <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
                     {selectedNode ? (
@@ -150,10 +149,10 @@ export default function GenealogyExplorer() {
                                         ? 'bg-emerald-100 text-emerald-700'
                                         : 'bg-blue-100 text-blue-700'
                                         }`}>
-                                        {selectedNode.group === 'Target' ? 'Selected Strain' : 'Ancestor'}
+                                        {selectedNode.group === 'Target' ? 'Selected Strain' : 'Lineage Ancestor'}
                                     </span>
                                 </div>
-                                <h1 className="text-2xl font-extrabold text-gray-900 leading-tight">
+                                <h1 className="text-3xl font-extrabold text-gray-900 leading-tight">
                                     {selectedNode.label}
                                 </h1>
                                 {(selectedNode.type) && (
@@ -163,55 +162,40 @@ export default function GenealogyExplorer() {
 
                             {/* Key Stats Grid */}
                             <div className="grid grid-cols-2 gap-3">
-                                <div className="p-3 bg-white/40 backdrop-blur-sm rounded-xl border border-white/60 shadow-sm hover:bg-white/60 hover:shadow-md transition-all duration-300 group">
-                                    <div className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1">Breeder</div>
-                                    <div className="font-semibold text-gray-800 text-sm truncate">
-                                        {selectedNode.breeder || "Unknown"}
-                                    </div>
-                                </div>
-                                <div className="p-3 bg-white/40 backdrop-blur-sm rounded-xl border border-white/60 shadow-sm hover:bg-white/60 hover:shadow-md transition-all duration-300 group">
-                                    <div className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1">THC Content</div>
-                                    <div className="font-semibold text-emerald-600 text-sm">
-                                        {selectedNode.thc || "N/A"}
-                                    </div>
-                                </div>
-                                <div className="p-3 bg-white/40 backdrop-blur-sm rounded-xl border border-white/60 shadow-sm hover:bg-white/60 hover:shadow-md transition-all duration-300 group">
-                                    <div className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1">CBD Content</div>
-                                    <div className="font-semibold text-blue-600 text-sm">
-                                        {selectedNode.cbd || "N/A"}
-                                    </div>
-                                </div>
-                                <div className="p-3 bg-white/40 backdrop-blur-sm rounded-xl border border-white/60 shadow-sm hover:bg-white/60 hover:shadow-md transition-all duration-300 group">
-                                    <div className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1">Flavor</div>
-                                    <div className="font-semibold text-gray-800 text-sm truncate" title={selectedNode.flavor}>
-                                        {selectedNode.flavor ? selectedNode.flavor.split('/')[0] : "N/A"}
-                                    </div>
-                                </div>
+                                <DetailCard title="Breeder" value={selectedNode.breeder} />
+                                <DetailCard title="Flavor" value={selectedNode.flavor || (selectedNode.flavors ? selectedNode.flavors[0] : null)} />
+                                <DetailCard title="THC" value={selectedNode.thc} color="emerald" />
+                                <DetailCard title="CBD" value={selectedNode.cbd} color="blue" />
                             </div>
 
-                            {/* Description */}
+                            {/* Description (Expandable) */}
                             {selectedNode.description && (
-                                <div>
-                                    <h3 className="text-sm font-bold text-gray-900 mb-2">Description</h3>
+                                <ExpandableSection title="Description">
                                     <p className="text-sm text-gray-600 leading-relaxed">
                                         {selectedNode.description.replace(/<[^>]*>?/gm, '')}
                                     </p>
-                                </div>
+                                </ExpandableSection>
                             )}
 
                             {/* Effects */}
-                            {selectedNode.effects && (
-                                <div>
-                                    <h3 className="text-sm font-bold text-gray-900 mb-2">Effects</h3>
-                                    <div className="flex flex-wrap gap-1.5">
-                                        {selectedNode.effects.split(',').map((e: string, i: number) => (
-                                            <span key={i} className="px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded-md border border-purple-100">
-                                                {e.trim()}
-                                            </span>
-                                        ))}
-                                    </div>
-                                </div>
+                            <TagSection title="Effects" items={selectedNode.effects} color="purple" />
+
+                            {/* Medical */}
+                            <TagSection title="Medical Uses" items={selectedNode.medical} color="red" />
+
+                            {/* Terpenes */}
+                            <TagSection title="Terpenes" items={selectedNode.terpenes} color="amber" />
+
+                            {/* Flavors (Full List) */}
+                            {selectedNode.flavors && selectedNode.flavors.length > 1 && (
+                                <TagSection title="Flavors" items={selectedNode.flavors} color="orange" />
                             )}
+
+                            {/* Aromas */}
+                            <TagSection title="Aromas" items={selectedNode.aromas} color="teal" />
+
+                            {/* Cannabinoids List */}
+                            <TagSection title="Cannabinoids" items={selectedNode.cannabinoids} color="cyan" />
 
                         </div>
                     ) : (
@@ -253,6 +237,80 @@ export default function GenealogyExplorer() {
                     </div>
                 )}
             </div>
+        </div>
+    );
+}
+
+// --- Helper Components ---
+
+function DetailCard({ title, value, color = "gray" }: { title: string, value: any, color?: string }) {
+    if (!value || value === "Unknown") return null;
+
+    const colors: any = {
+        emerald: "text-emerald-600",
+        blue: "text-blue-600",
+        gray: "text-gray-800"
+    };
+
+    return (
+        <div className="p-3 bg-white/40 backdrop-blur-sm rounded-xl border border-white/60 shadow-sm hover:bg-white/60 hover:shadow-md transition-all duration-300 group">
+            <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1">{title}</div>
+            <div className={`font-semibold text-sm truncate ${colors[color] || colors.gray}`}>
+                {value}
+            </div>
+        </div>
+    );
+}
+
+function TagSection({ title, items, color }: { title: string, items: string[] | string, color: string }) {
+    if (!items || (Array.isArray(items) && items.length === 0)) return null;
+
+    // Normalize to array
+    const list = Array.isArray(items) ? items : items.split(',').map(s => s.trim());
+
+    const colorStyles: any = {
+        purple: "bg-purple-50 text-purple-700 border-purple-100",
+        red: "bg-red-50 text-red-700 border-red-100",
+        amber: "bg-amber-50 text-amber-700 border-amber-100",
+        orange: "bg-orange-50 text-orange-700 border-orange-100",
+        teal: "bg-teal-50 text-teal-700 border-teal-100",
+        cyan: "bg-cyan-50 text-cyan-700 border-cyan-100",
+    };
+
+    return (
+        <div>
+            <h3 className="text-xs font-bold text-gray-900 uppercase tracking-widest mb-2 opacity-80">{title}</h3>
+            <div className="flex flex-wrap gap-1.5">
+                {list.map((item, i) => (
+                    <span key={i} className={`px-2 py-1 text-xs rounded-md border font-medium ${colorStyles[color]}`}>
+                        {item}
+                    </span>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function ExpandableSection({ title, children }: { title: string, children: React.ReactNode }) {
+    const [expanded, setExpanded] = useState(false);
+
+    return (
+        <div className="bg-white/30 rounded-xl p-3 border border-white/50">
+            <button
+                onClick={() => setExpanded(!expanded)}
+                className="w-full flex justify-between items-center text-xs font-bold text-gray-900 uppercase tracking-widest opacity-80 mb-1 hover:opacity-100 transition-opacity"
+            >
+                {title}
+                <span className="text-gray-400 text-lg">{expanded ? '−' : '+'}</span>
+            </button>
+            <div className={`overflow-hidden transition-all duration-500 ease-in-out ${expanded ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'}`}>
+                {children}
+            </div>
+            {!expanded && (
+                <div onClick={() => setExpanded(true)} className="text-xs text-gray-400 cursor-pointer hover:text-emerald-600 mt-1">
+                    Click to view details...
+                </div>
+            )}
         </div>
     );
 }
