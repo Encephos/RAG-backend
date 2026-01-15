@@ -1,0 +1,5 @@
+Analysis of Seedfinder vs Others:
+Total Unique Strains in Seedfinder: 30217
+Total Unique Strains in Others: 18842
+Strains UNIQUE to Seedfinder: 22113
+Examples of unique strains: ['jungle sunset', 'strawberry smile', 'eastern rebellion', 'indian', 'blue moon', 'harvest festival', 'double xl watermelon weddingcake', 'cream puff', 'royal blackberry kush', 'dirty z']
